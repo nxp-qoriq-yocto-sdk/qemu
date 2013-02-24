@@ -37,6 +37,7 @@
 #include "hw/spapr.h"
 #include "hw/spapr_vio.h"
 #include "exec/gdbstub.h"
+#include "hw/watchdog.h"
 
 //#define DEBUG_KVM
 
@@ -64,6 +65,7 @@ static int cap_ppc_smt;
 static int cap_ppc_rma;
 static int cap_spapr_tce;
 static int cap_hior;
+static int cap_ppc_watchdog;
 
 /* XXX We have a race condition where we actually have a level triggered
  *     interrupt, but the infrastructure can't expose that yet, so the guest
@@ -93,6 +95,7 @@ int kvm_arch_init(KVMState *s)
     cap_ppc_rma = kvm_check_extension(s, KVM_CAP_PPC_RMA);
     cap_spapr_tce = kvm_check_extension(s, KVM_CAP_SPAPR_TCE);
     cap_hior = kvm_check_extension(s, KVM_CAP_PPC_HIOR);
+    cap_ppc_watchdog = kvm_check_extension(s, KVM_CAP_PPC_BOOKE_WATCHDOG);
 
     if (!cap_interrupt_level) {
         fprintf(stderr, "KVM: Couldn't find level irq capability. Expect the "
@@ -1116,10 +1119,81 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         ret = 0;
         break;
 #endif
+    case KVM_EXIT_WATCHDOG:
+        dprintf("handle watchdog expiry\n");
+        watchdog_perform_action();
+        ret = 0;
+        break;
+
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
         ret = -1;
         break;
+    }
+
+    return ret;
+}
+
+int kvmppc_or_tsr_bits(PowerPCCPU *cpu, uint32_t tsr_bits)
+{
+    CPUState *cs = CPU(cpu);
+    uint32_t bits = tsr_bits;
+    struct kvm_one_reg reg = {
+        .id = KVM_REG_PPC_OR_TSR,
+        .addr = (uintptr_t) &bits,
+    };
+
+    return kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &reg);
+}
+
+int kvmppc_clear_tsr_bits(PowerPCCPU *cpu, uint32_t tsr_bits)
+{
+
+    CPUState *cs = CPU(cpu);
+    uint32_t bits = tsr_bits;
+    struct kvm_one_reg reg = {
+        .id = KVM_REG_PPC_CLEAR_TSR,
+        .addr = (uintptr_t) &bits,
+    };
+
+    return kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &reg);
+}
+
+int kvmppc_set_tcr(PowerPCCPU *cpu)
+{
+    CPUState *cs = CPU(cpu);
+    CPUPPCState *env = &cpu->env;
+    uint32_t tcr = env->spr[SPR_BOOKE_TCR];
+
+    struct kvm_one_reg reg = {
+        .id = KVM_REG_PPC_TCR,
+        .addr = (uintptr_t) &tcr,
+    };
+
+    return kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &reg);
+}
+
+int kvmppc_booke_watchdog_enable(PowerPCCPU *cpu)
+{
+    CPUState *cs = CPU(cpu);
+    struct kvm_enable_cap encap = {};
+    int ret;
+
+    if (!kvm_enabled()) {
+        return -1;
+    }
+
+    if (!cap_ppc_watchdog) {
+        printf("warning: KVM does not support watchdog");
+        return -1;
+    }
+
+    encap.cap = KVM_CAP_PPC_BOOKE_WATCHDOG;
+    ret = kvm_vcpu_ioctl(cs, KVM_ENABLE_CAP, &encap);
+    if (ret < 0) {
+        fprintf(stderr, "%s: couldn't enable KVM_CAP_PPC_BOOKE_WATCHDOG: %s\n",
+                __func__, strerror(-ret));
+        return ret;
     }
 
     return ret;
