@@ -16,6 +16,7 @@
 #include "sysemu/device_tree.h"
 #include "hw/pci/pci.h"
 #include "hw/openpic.h"
+#include "sysemu/kvm.h"
 
 static void e500plat_fixup_devtree(PPCE500Params *params, void *fdt)
 {
@@ -47,6 +48,10 @@ static void e500plat_init(QEMUMachineInitArgs *args)
         .fixup_devtree = e500plat_fixup_devtree,
         .mpic_version = OPENPIC_MODEL_FSL_MPIC_42,
     };
+
+    if (kvm_enabled() && !kvm_check_extension(kvm_state, KVM_CAP_PPC_EPR)) {
+        params.mpic_version = OPENPIC_MODEL_FSL_MPIC_20;
+    }
 
     ppce500_init(&params);
 }
