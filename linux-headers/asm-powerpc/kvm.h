@@ -25,6 +25,7 @@
 /* Select powerpc specific features in <linux/kvm.h> */
 #define __KVM_HAVE_SPAPR_TCE
 #define __KVM_HAVE_PPC_SMT
+#define __KVM_HAVE_IRQCHIP
 
 struct kvm_regs {
 	__u64 pc;
@@ -267,12 +268,48 @@ struct kvm_fpu {
 	__u64 fpr[32];
 };
 
+/*
+ * Defines for h/w breakpoint, watchpoint (read, write or both) and
+ * software breakpoint.
+ * These are used as "type" in KVM_SET_GUEST_DEBUG ioctl and "status"
+ * for KVM_DEBUG_EXIT.
+ */
+#define KVMPPC_DEBUG_NONE		0x0
+#define KVMPPC_DEBUG_BREAKPOINT		(1UL << 1)
+#define KVMPPC_DEBUG_WATCH_WRITE	(1UL << 2)
+#define KVMPPC_DEBUG_WATCH_READ		(1UL << 3)
 struct kvm_debug_exit_arch {
+	__u64 address;
+	/*
+	 * exiting to userspace because of h/w breakpoint, watchpoint
+	 * (read, write or both) and software breakpoint.
+	 */
+	__u32 status;
+	__u32 reserved;
 };
 
 /* for KVM_SET_GUEST_DEBUG */
 struct kvm_guest_debug_arch {
+	struct {
+		/* H/W breakpoint/watchpoint address */
+		__u64 addr;
+		/*
+		 * Type denotes h/w breakpoint, read watchpoint, write
+		 * watchpoint or watchpoint (both read and write).
+		 */
+		__u32 type;
+		__u32 reserved;
+	} bp[16];
 };
+
+/* Debug related defines */
+/*
+ * kvm_guest_debug->control is a 32 bit field. The lower 16 bits are generic
+ * and upper 16 bits are architecture specific. Architecture specific defines
+ * that ioctl is for setting hardware breakpoint or software breakpoint.
+ */
+#define KVM_GUESTDBG_USE_SW_BP		0x00010000
+#define KVM_GUESTDBG_USE_HW_BP		0x00020000
 
 /* definition of registers in kvm_run */
 struct kvm_sync_regs {
@@ -416,5 +453,43 @@ struct kvm_get_htab_header {
 
 #define KVM_REG_PPC_EPCR	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x85)
 #define KVM_REG_PPC_EPR		(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x86)
+
+/* Timer Status Register OR/CLEAR interface */
+#define KVM_REG_PPC_OR_TSR	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x87)
+#define KVM_REG_PPC_CLEAR_TSR	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x88)
+#define KVM_REG_PPC_TCR		(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x89)
+#define KVM_REG_PPC_TSR		(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x8a)
+
+/* Debugging: Special instruction for software breakpoint */
+#define KVM_REG_PPC_DEBUG_INST	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x8b)
+
+/* MMU registers */
+#define KVM_REG_PPC_MAS0	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x8c)
+#define KVM_REG_PPC_MAS1	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x8d)
+#define KVM_REG_PPC_MAS2	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0x8e)
+#define KVM_REG_PPC_MAS7_3	(KVM_REG_PPC | KVM_REG_SIZE_U64 | 0x8f)
+#define KVM_REG_PPC_MAS4	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x90)
+#define KVM_REG_PPC_MAS6	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x91)
+#define KVM_REG_PPC_MMUCFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x92)
+/*
+ * TLBnCFG fields TLBnCFG_N_ENTRY and TLBnCFG_ASSOC can be changed only using
+ * KVM_CAP_SW_TLB ioctl
+ */
+#define KVM_REG_PPC_TLB0CFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x93)
+#define KVM_REG_PPC_TLB1CFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x94)
+#define KVM_REG_PPC_TLB2CFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x95)
+#define KVM_REG_PPC_TLB3CFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x96)
+#define KVM_REG_PPC_TLB0PS	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x97)
+#define KVM_REG_PPC_TLB1PS	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x98)
+#define KVM_REG_PPC_TLB2PS	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x99)
+#define KVM_REG_PPC_TLB3PS	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x9a)
+#define KVM_REG_PPC_EPTCFG	(KVM_REG_PPC | KVM_REG_SIZE_U32 | 0x9b)
+
+/* Device control API: PPC-specific devices */
+#define KVM_DEV_MPIC_GRP_MISC		1
+#define KVM_DEV_MPIC_BASE_ADDR		0	/* 64-bit */
+
+#define KVM_DEV_MPIC_GRP_REGISTER	2	/* 32-bit */
+#define KVM_DEV_MPIC_GRP_IRQ_ACTIVE	3	/* 32-bit */
 
 #endif /* __LINUX_KVM_POWERPC_H */
