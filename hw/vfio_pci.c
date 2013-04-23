@@ -1863,16 +1863,16 @@ static int vfio_connect_container(VFIOGroup *group)
         count = ioctl(fd, VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT, NULL);
         if (count < 0) {
             error_report("vfio: error getting msi bank count: %m");
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
 
         ret = vfio_iommu_get_attr_win(fd, &max_windows);
         if (ret) {
             error_report("vfio: error getting VFIO_ATTR_WINDOWS: %m");
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
 
@@ -1887,24 +1887,24 @@ static int vfio_connect_container(VFIOGroup *group)
         if (num_windows > max_windows) {
             error_report("vfio: Number of windows needed (%d) is more than"
                           "h/w supported (%d): %m", num_windows, max_windows);
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
         /* Set geometry from  0 to (pagesize * num_windows - 1) */
         ret = vfio_iommu_set_attr_geom(fd, 0, pagesize * num_windows - 1);
         if (ret) {
             error_report("vfio: error setting VFIO_ATTR_GEOMETRY: %m");
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
 
         ret = vfio_iommu_set_attr_win(fd, num_windows);
         if (ret) {
             error_report("vfio: error setting VFIO_ATTR_WINDOWS: %m");
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
 
@@ -1914,8 +1914,8 @@ static int vfio_connect_container(VFIOGroup *group)
         if (ret) {
             error_report("vfio: error setting MSI_MAP: %m");
             vfio_iommu_msi_unmap(fd, iova_start, iova_align_size, count);
-            close(group->fd);
-            g_free(group);
+            g_free(container);
+            close(fd);
             return -errno;
         }
         /* FIXME: currently we do not support peer to peer PCI device
