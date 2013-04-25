@@ -7263,6 +7263,8 @@ enum {
     CPU_POWERPC_e5500_v11          = 0x80240011,
     CPU_POWERPC_e5500_v12          = 0x80240012,
     CPU_POWERPC_e5500_v1020        = 0x80241020,
+    CPU_POWERPC_e6500_v10          = 0x80400010,
+    CPU_POWERPC_e6500_v20          = 0x80400020,
     /* MPC85xx microcontrollers */
 #define CPU_POWERPC_MPC8533          CPU_POWERPC_MPC8533_v11
 #define CPU_POWERPC_MPC8533_v10      CPU_POWERPC_e500v2_v21
@@ -8718,6 +8720,16 @@ static const ppc_def_t ppc_defs[] = {
     /* PowerPC e5500 v102.0 core                                              */
     POWERPC_DEF_SVR("e5500_v1020",
                     CPU_POWERPC_e5500_v1020, POWERPC_SVR_E500, e5500),
+
+    /* e6500 family */
+    POWERPC_DEF_SVR("e6500",
+                    CPU_POWERPC_e6500_v10, POWERPC_SVR_E500, e5500),
+    /* PowerPC e6500 v1.0 core -- handle like e5500 for now                 */
+    POWERPC_DEF_SVR("e6500_v10",
+                    CPU_POWERPC_e6500_v10, POWERPC_SVR_E500, e5500),
+    /* PowerPC e6500 v2.0 core -- handle like e5500 for now                 */
+    POWERPC_DEF_SVR("e6500_v20",
+                    CPU_POWERPC_e6500_v20, POWERPC_SVR_E500, e5500),
 #endif
 
     /* PowerPC e500 microcontrollers                                         */
