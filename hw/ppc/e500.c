@@ -620,7 +620,11 @@ void ppce500_init(QEMUMachineInitArgs *args, PPCE500Params *params)
 
     /* Setup CPUs */
     if (args->cpu_model == NULL) {
-        args->cpu_model = "e500v2_v30";
+        if (kvm_enabled()) {
+            args->cpu_model = "host";
+        } else {
+            args->cpu_model = "e500v2_v30";
+        }
     }
 
     irqs = g_malloc0(smp_cpus * sizeof(qemu_irq *));
