@@ -1331,6 +1331,10 @@ int kvm_arch_on_sigbus(int code, void *addr)
     return 1;
 }
 
+void kvm_arch_init_irq_routing(KVMState *s)
+{
+}
+
 static const TypeInfo kvm_host_cpu_type_info = {
     .name = TYPE_HOST_POWERPC_CPU,
     .parent = TYPE_POWERPC_CPU,
