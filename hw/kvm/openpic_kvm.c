@@ -210,6 +210,8 @@ static int kvm_openpic_init(SysBusDevice *dev)
     kvm_msi_via_irqfd_allowed = true;
     kvm_gsi_routing_allowed = true;
 
+    kvm_irqchip_commit_routes(s);
+
     return 0;
 }
 
