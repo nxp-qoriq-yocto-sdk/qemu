@@ -148,6 +148,7 @@ struct MemoryRegion {
     bool ram;
     bool readonly; /* For RAM regions */
     bool enabled;
+    bool identity_map; /* 1:1 host physical mapping */
     bool rom_device;
     bool warning_printed; /* For reservations */
     bool flush_coalesced_mmio;
@@ -315,6 +316,22 @@ void memory_region_init_ram(MemoryRegion *mr,
                             const char *name,
                             uint64_t size);
 
+/**
+ * memory_region_init_identity_map_ram:  Initialize identity map RAM memory region.
+ *                                     This represents 1:1 mapping wrt to host
+ *                                     physical. Access in to the region will
+ *                                     modify memory directly.
+ *
+ * @mr: the #MemoryRegion to be initialized.
+ * @name: the name of the region.
+ * @size: size of the region.
+ * @identity_map: is it a identity mapped memory region.
+ */
+void memory_region_init_identity_map_ram(MemoryRegion *mr,
+                            struct Object *owner,
+                            const char *name,
+                            uint64_t size,
+                            bool identity_map);
 /**
  * memory_region_init_ram_ptr:  Initialize RAM memory region from a
  *                              user-provided pointer.  Accesses into the
@@ -489,6 +506,17 @@ void memory_region_register_iommu_notifier(MemoryRegion *mr, Notifier *n);
  */
 void memory_region_unregister_iommu_notifier(Notifier *n);
 
+/**
+ * memory_region_is_identity_map: check whether a memory region is identity map
+ *
+ * Returns %true is a memory region is identity mapped.
+ *
+ * @mr: the memory region being queried
+ */
+static inline bool memory_region_is_identity_map(MemoryRegion *mr)
+{
+    return mr->identity_map;
+}
 /**
  * memory_region_name: get a memory region's name
  *

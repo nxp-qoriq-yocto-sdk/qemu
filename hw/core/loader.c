@@ -437,7 +437,7 @@ static ssize_t gunzip(void *dst, size_t dstlen, uint8_t *src,
 
 /* Load a U-Boot image.  */
 static int load_uboot_image(const char *filename, hwaddr *ep, hwaddr *loadaddr,
-                            int *is_linux, uint8_t image_type)
+                            int *is_linux, uint8_t image_type, int is_fixed)
 {
     int fd;
     int size;
@@ -471,8 +471,13 @@ static int load_uboot_image(const char *filename, hwaddr *ep, hwaddr *loadaddr,
     switch (hdr->ih_type) {
     case IH_TYPE_KERNEL:
         address = hdr->ih_load;
+
         if (loadaddr) {
-            *loadaddr = hdr->ih_load;
+            if (is_fixed) {
+                address = *loadaddr;
+            } else {
+                *loadaddr = address;
+            }
         }
 
         switch (hdr->ih_comp) {
@@ -489,7 +494,7 @@ static int load_uboot_image(const char *filename, hwaddr *ep, hwaddr *loadaddr,
         }
 
         if (ep) {
-            *ep = hdr->ih_ep;
+            *ep = address + hdr->ih_ep - hdr->ih_load;
         }
 
         /* TODO: Check CPU type.  */
@@ -546,16 +551,17 @@ out:
     return ret;
 }
 
-int load_uimage(const char *filename, hwaddr *ep, hwaddr *loadaddr,
-                int *is_linux)
+int load_uimage2(const char *filename, hwaddr *ep, hwaddr *loadaddr,
+                int *is_linux, int is_fixed)
 {
-    return load_uboot_image(filename, ep, loadaddr, is_linux, IH_TYPE_KERNEL);
+    return load_uboot_image(filename, ep, loadaddr, is_linux, IH_TYPE_KERNEL,
+                            is_fixed);
 }
 
 /* Load a ramdisk.  */
 int load_ramdisk(const char *filename, hwaddr addr, uint64_t max_sz)
 {
-    return load_uboot_image(filename, NULL, &addr, NULL, IH_TYPE_RAMDISK);
+    return load_uboot_image(filename, NULL, &addr, NULL, IH_TYPE_RAMDISK, 0);
 }
 
 /*
