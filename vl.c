@@ -427,6 +427,10 @@ static QemuOptsList qemu_machine_opts = {
             .name = "usb",
             .type = QEMU_OPT_BOOL,
             .help = "Set on/off to enable/disable usb",
+        },{
+            .name = "identity_map",
+            .type = QEMU_OPT_BOOL,
+            .help = "enables 1:1 guest physical to host physical mapping",
         },
         { /* End of list */ }
     },
@@ -3083,6 +3087,10 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_dtb:
                 qemu_opts_set(qemu_find_opts("machine"), 0, "dtb", optarg);
+                break;
+            case QEMU_OPTION_identity_map:
+                olist = qemu_find_opts("machine");
+                qemu_opts_parse(olist, "identity_map=on", 0);
                 break;
             case QEMU_OPTION_cdrom:
                 drive_add(IF_DEFAULT, 2, optarg, CDROM_OPTS);

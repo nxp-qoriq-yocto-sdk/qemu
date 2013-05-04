@@ -434,12 +434,13 @@ static ssize_t gunzip(void *dst, size_t dstlen, uint8_t *src,
 }
 
 /* Load a U-Boot image.  */
-int load_uimage(const char *filename, hwaddr *ep,
-                hwaddr *loadaddr, int *is_linux)
+int load_uimage2(const char *filename, hwaddr *ep,
+                hwaddr *loadaddr_ptr, int *is_linux, int is_fixed)
 {
     int fd;
     int size;
     uboot_image_header_t h;
+    hwaddr loadaddr;
     uboot_image_header_t *hdr = &h;
     uint8_t *data = NULL;
     int ret = -1;
@@ -482,7 +483,18 @@ int load_uimage(const char *filename, hwaddr *ep,
             *is_linux = 0;
     }
 
-    *ep = hdr->ih_ep;
+    loadaddr = hdr->ih_load;
+
+    if (loadaddr_ptr) {
+        if (is_fixed) {
+            loadaddr = *loadaddr_ptr;
+        } else {
+            *loadaddr_ptr = loadaddr;
+        }
+    }
+
+    *ep = loadaddr + hdr->ih_ep - hdr->ih_load;
+
     data = g_malloc(hdr->ih_size);
 
     if (read(fd, data, hdr->ih_size) != hdr->ih_size) {
@@ -508,10 +520,7 @@ int load_uimage(const char *filename, hwaddr *ep,
         hdr->ih_size = bytes;
     }
 
-    rom_add_blob_fixed(filename, data, hdr->ih_size, hdr->ih_load);
-
-    if (loadaddr)
-        *loadaddr = hdr->ih_load;
+    rom_add_blob_fixed(filename, data, hdr->ih_size, loadaddr);
 
     ret = hdr->ih_size;
 

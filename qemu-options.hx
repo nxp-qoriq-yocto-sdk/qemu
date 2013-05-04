@@ -35,7 +35,8 @@ DEF("machine", HAS_ARG, QEMU_OPTION_machine, \
     "                kernel_irqchip=on|off controls accelerated irqchip support\n"
     "                kvm_shadow_mem=size of KVM shadow MMU\n"
     "                dump-guest-core=on|off include guest memory in a core dump (default=on)\n"
-    "                mem-merge=on|off controls memory merge support (default: on)\n",
+    "                mem-merge=on|off controls memory merge support (default: on)\n"
+    "                identity_map=off|on enable identity_map memory support\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -machine [type=]@var{name}[,prop=@var{value}[,...]]
@@ -50,6 +51,8 @@ than one accelerator specified, the next one is used if the previous one fails
 to initialize.
 @item kernel_irqchip=on|off
 Enables in-kernel irqchip support for the chosen accelerator when available.
+@item identity_map=on|off
+Enables identity map memory support.
 @item kvm_shadow_mem=size
 Defines the size of the KVM shadow MMU.
 @item dump-guest-core=on|off
@@ -2239,9 +2242,18 @@ Use @var{file} as a device tree binary (dtb) image and pass it to the kernel
 on boot.
 ETEXI
 
+DEF("identity_map", 0, QEMU_OPTION_identity_map, \
+    "-identity_map    Enabled identity_map memory support\n", QEMU_ARCH_ALL)
+STEXI
+@item -identity_map
+@findex -identity_map
+Enable identity map memory support (1:1) guest to host physical.
+ETEXI
+
 STEXI
 @end table
 ETEXI
+
 
 DEFHEADING()
 

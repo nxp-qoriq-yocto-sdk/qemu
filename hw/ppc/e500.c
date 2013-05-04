@@ -64,9 +64,13 @@
 
 struct boot_info
 {
-    uint32_t dt_base;
-    uint32_t dt_size;
-    uint32_t entry;
+    hwaddr ram_start;
+    hwaddr ram_end;
+    hwaddr dt_base;
+    hwaddr dt_size;
+    hwaddr kernel_start;
+    hwaddr kernel_end;
+    hwaddr entry;
 };
 
 static uint32_t *pci_map_create(void *fdt, uint32_t mpic, int first_slot,
@@ -129,7 +133,8 @@ static int ppce500_load_device_tree(CPUPPCState *env,
                                     hwaddr initrd_size)
 {
     int ret = -1;
-    uint64_t mem_reg_property[] = { 0, cpu_to_be64(params->ram_size) };
+    struct boot_info *bi = env->load_info;
+    uint64_t mem_reg_property[] = {bi->ram_start, bi->ram_end - bi->ram_start + 1};
     int fdt_size;
     void *fdt;
     uint8_t hypercall[16];
@@ -416,7 +421,7 @@ static void mmubooke_create_initial_mapping(CPUPPCState *env)
     size = (ps << MAS1_TSIZE_SHIFT);
     tlb->mas1 = MAS1_VALID | size;
     tlb->mas2 = 0;
-    tlb->mas7_3 = 0;
+    tlb->mas7_3 = bi->ram_start;
     tlb->mas7_3 |= MAS3_UR | MAS3_UW | MAS3_UX | MAS3_SR | MAS3_SW | MAS3_SX;
 
     env->tlb_dirty = true;
@@ -560,8 +565,6 @@ void ppce500_init(PPCE500Params *params)
     CPUPPCState *env = NULL;
     uint64_t elf_entry;
     uint64_t elf_lowaddr;
-    hwaddr entry=0;
-    hwaddr loadaddr=UIMAGE_LOAD_BASE;
     target_long kernel_size=0;
     target_ulong dt_base = 0;
     target_ulong initrd_base = 0;
@@ -575,6 +578,9 @@ void ppce500_init(PPCE500Params *params)
     MemoryRegion *ccsr_addr_space;
     SysBusDevice *s;
     PPCE500CCSRState *ccsr;
+    struct boot_info *boot_info = NULL;
+    QemuOpts *machine_opts;
+    bool identity_map = false;
 
     /* Setup CPUs */
     if (params->cpu_model == NULL) {
@@ -584,6 +590,10 @@ void ppce500_init(PPCE500Params *params)
             params->cpu_model = "e500v2_v30";
         }
     }
+
+    machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
+    if (machine_opts)
+        identity_map = qemu_opt_get_bool(machine_opts, "identity_map", false);
 
     irqs = g_malloc0(smp_cpus * sizeof(qemu_irq *));
     irqs[0] = g_malloc0(smp_cpus * sizeof(qemu_irq) * OPENPIC_OUTPUT_NB);
@@ -617,7 +627,6 @@ void ppce500_init(PPCE500Params *params)
         /* Register reset handler */
         if (!i) {
             /* Primary CPU */
-            struct boot_info *boot_info;
             boot_info = g_malloc0(sizeof(struct boot_info));
             qemu_register_reset(ppce500_cpu_reset, cpu);
             env->load_info = boot_info;
@@ -633,9 +642,12 @@ void ppce500_init(PPCE500Params *params)
     ram_size &= ~(RAM_SIZES_ALIGN - 1);
 
     /* Register Memory */
-    memory_region_init_ram(ram, "mpc8544ds.ram", ram_size);
+    if (identity_map)
+        memory_region_init_identity_map_ram(ram, "mpc8544ds.ram", ram_size, 1);
+    else
+        memory_region_init_ram(ram, "mpc8544ds.ram", ram_size);
     vmstate_register_ram_global(ram);
-    memory_region_add_subregion(address_space_mem, 0, ram);
+    memory_region_add_subregion(address_space_mem, ram->ram_addr, ram);
 
     dev = qdev_create(NULL, "e500-ccsr");
     object_property_add_child(qdev_get_machine(), "e500-ccsr",
@@ -695,17 +707,24 @@ void ppce500_init(PPCE500Params *params)
 
     /* Register spinning region */
     sysbus_create_simple("e500-spin", MPC8544_SPIN_BASE, NULL);
+    /* Needed for "fixed" address image loading */
+    boot_info->ram_start = ram->ram_addr;
+    boot_info->ram_end = boot_info->ram_start + ram_size - 1;
+    boot_info->kernel_start = boot_info->ram_start;
+
+    /* Don't leave garbage in bi if we're not loading things */
+    boot_info->kernel_end = boot_info->ram_end;
 
     /* Load kernel. */
     if (params->kernel_filename) {
-        kernel_size = load_uimage(params->kernel_filename, &entry,
-                                  &loadaddr, NULL);
+        kernel_size = load_uimage2(params->kernel_filename, &boot_info->entry,
+                                  &boot_info->kernel_start, NULL, 1);
         if (kernel_size < 0) {
             kernel_size = load_elf(params->kernel_filename, NULL, NULL,
                                    &elf_entry, &elf_lowaddr, NULL, 1,
                                    ELF_MACHINE, 0);
-            entry = elf_entry;
-            loadaddr = elf_lowaddr;
+            boot_info->entry = elf_entry;
+            boot_info->kernel_start = elf_lowaddr;
         }
         /* XXX try again as binary */
         if (kernel_size < 0) {
@@ -714,7 +733,8 @@ void ppce500_init(PPCE500Params *params)
             exit(1);
         }
 
-        cur_base = loadaddr + kernel_size;
+        cur_base = boot_info->kernel_start + kernel_size;
+        boot_info->kernel_end = cur_base - 1;
 
         /* Reserve space for dtb */
         dt_base = (cur_base + DTC_LOAD_PAD) & ~DTC_PAD_MASK;
@@ -738,7 +758,6 @@ void ppce500_init(PPCE500Params *params)
 
     /* If we're loading a kernel directly, we must load the device tree too. */
     if (params->kernel_filename) {
-        struct boot_info *boot_info;
         int dt_size;
 
         dt_size = ppce500_load_device_tree(env, params, dt_base, initrd_base,
@@ -749,8 +768,6 @@ void ppce500_init(PPCE500Params *params)
         }
         assert(dt_size < DTB_MAX_SIZE);
 
-        boot_info = env->load_info;
-        boot_info->entry = entry;
         boot_info->dt_base = dt_base;
         boot_info->dt_size = dt_size;
     }

@@ -13,8 +13,14 @@ int load_elf(const char *filename, uint64_t (*translate_fn)(void *, uint64_t),
              int clear_lsb);
 int load_aout(const char *filename, hwaddr addr, int max_sz,
               int bswap_needed, hwaddr target_page_size);
-int load_uimage(const char *filename, hwaddr *ep,
-                hwaddr *loadaddr, int *is_linux);
+int load_uimage2(const char *filename, hwaddr *ep,
+                hwaddr *loadaddr, int *is_linuxi, int is_fixed);
+
+static inline int load_uimage(const char *filename, hwaddr *ep,
+                hwaddr *loadaddr, int *is_linux)
+{
+    return load_uimage2(filename, ep, loadaddr, is_linux, 0);
+}
 
 ssize_t read_targphys(const char *name,
                       int fd, hwaddr dst_addr, size_t nbytes);

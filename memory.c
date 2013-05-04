@@ -933,15 +933,24 @@ void memory_region_init_io(MemoryRegion *mr,
     mr->ram_addr = ~(ram_addr_t)0;
 }
 
+void memory_region_init_identity_map_ram(MemoryRegion *mr,
+                                       const char *name,
+                                       uint64_t size,
+                                       bool identity_map)
+{
+    memory_region_init(mr, name, size);
+    mr->ram = true;
+    mr->identity_map = identity_map;
+    mr->terminates = true;
+    mr->destructor = memory_region_destructor_ram;
+    mr->ram_addr = qemu_ram_alloc(size, mr);
+}
+
 void memory_region_init_ram(MemoryRegion *mr,
                             const char *name,
                             uint64_t size)
 {
-    memory_region_init(mr, name, size);
-    mr->ram = true;
-    mr->terminates = true;
-    mr->destructor = memory_region_destructor_ram;
-    mr->ram_addr = qemu_ram_alloc(size, mr);
+    memory_region_init_identity_map_ram(mr, name, size, 0);
 }
 
 void memory_region_init_ram_ptr(MemoryRegion *mr,
