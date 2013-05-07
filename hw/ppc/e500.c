@@ -819,6 +819,9 @@ void ppce500_init(QEMUMachineInitArgs *args, PPCE500Params *params)
     if (kvm_enabled()) {
         kvmppc_init();
     }
+#ifdef KVM_CAP_SET_GUEST_DEBUG
+    kvmppc_e500_hw_breakpoint_init();
+#endif
 }
 
 static int e500_ccsr_initfn(SysBusDevice *dev)
