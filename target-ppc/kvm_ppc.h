@@ -27,6 +27,7 @@ int kvmppc_set_interrupt(PowerPCCPU *cpu, int irq, int level);
 void kvmppc_set_papr(PowerPCCPU *cpu);
 void kvmppc_set_mpic_proxy(PowerPCCPU *cpu, int mpic_proxy);
 int kvmppc_smt_threads(void);
+void kvmppc_e500_hw_breakpoint_init(void);
 #ifndef CONFIG_USER_ONLY
 off_t kvmppc_alloc_rma(const char *name, MemoryRegion *sysmem);
 void *kvmppc_create_spapr_tce(uint32_t liobn, uint32_t window_size, int *pfd);

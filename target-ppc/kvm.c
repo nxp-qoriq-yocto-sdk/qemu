@@ -36,6 +36,7 @@
 #include "hw/sysbus.h"
 #include "hw/spapr.h"
 #include "hw/spapr_vio.h"
+#include "exec/gdbstub.h"
 
 //#define DEBUG_KVM
 
@@ -52,6 +53,8 @@
 const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
     KVM_CAP_LAST_INFO
 };
+
+static uint32_t debug_inst_opcode;
 
 static int cap_interrupt_unset = false;
 static int cap_interrupt_level = false;
@@ -393,6 +396,7 @@ int kvm_arch_init_vcpu(CPUState *cs)
 {
     PowerPCCPU *cpu = POWERPC_CPU(cs);
     CPUPPCState *cenv = &cpu->env;
+    struct kvm_one_reg reg;
     int ret;
 
     /* Gather server mmu info from KVM and update the CPU state */
@@ -413,6 +417,14 @@ int kvm_arch_init_vcpu(CPUState *cs)
         break;
     default:
         break;
+    }
+
+    reg.id = KVM_REG_PPC_DEBUG_INST,
+    reg.addr = (uintptr_t) &debug_inst_opcode,
+
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &reg);
+    if (ret) {
+        return ret;
     }
 
     return ret;
@@ -822,6 +834,243 @@ static int kvmppc_handle_dcr_write(CPUPPCState *env, uint32_t dcrn, uint32_t dat
     return 0;
 }
 
+#ifdef KVM_CAP_SET_GUEST_DEBUG
+/* Handling Software Breakpoint */
+int kvm_arch_insert_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
+{
+    CPUPPCState *env = &POWERPC_CPU(cs)->env;
+    uint32_t sc = tswap32(debug_inst_opcode);
+
+    if (cpu_memory_rw_debug(env, bp->pc, (uint8_t *)&bp->saved_insn, 4, 0) ||
+        cpu_memory_rw_debug(env, bp->pc, (uint8_t *)&sc, 4, 1)) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int kvm_arch_remove_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
+{
+    CPUPPCState *env = &POWERPC_CPU(cs)->env;
+    uint32_t sc;
+
+    if (cpu_memory_rw_debug(env, bp->pc, (uint8_t *)&sc, 4, 0) ||
+        sc != tswap32(debug_inst_opcode) ||
+        cpu_memory_rw_debug(env, bp->pc, (uint8_t *)&bp->saved_insn, 4, 1)) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+/* Handling Hardware Breakpoint */
+static struct HWBreakpoint {
+    target_ulong addr;
+    int type;
+} hw_breakpoint[6];
+
+static int nb_hw_breakpoint;
+static int nb_hw_watchpoint;
+static int max_hw_breakpoint = 4;
+static int max_hw_watchpoint = 2;
+
+void kvmppc_e500_hw_breakpoint_init(void)
+{
+    max_hw_breakpoint = 2;
+    max_hw_watchpoint = 2;
+}
+
+static int find_hw_breakpoint(target_ulong addr, int type)
+{
+    int n;
+
+    for (n = 0; n < nb_hw_breakpoint + nb_hw_watchpoint; n++) {
+        if (hw_breakpoint[n].addr == addr && hw_breakpoint[n].type == type) {
+            return n;
+        }
+    }
+
+    return -1;
+}
+
+static int find_hw_watchpoint(target_ulong addr, int *flag)
+{
+    int n;
+
+    n = find_hw_breakpoint(addr, GDB_WATCHPOINT_ACCESS);
+    if (n >= 0) {
+        *flag = BP_MEM_ACCESS;
+        return n;
+    }
+
+    n = find_hw_breakpoint(addr, GDB_WATCHPOINT_WRITE);
+    if (n >= 0) {
+        *flag = BP_MEM_WRITE;
+        return n;
+    }
+
+    n = find_hw_breakpoint(addr, GDB_WATCHPOINT_READ);
+    if (n >= 0) {
+        *flag = BP_MEM_READ;
+        return n;
+    }
+
+    return -1;
+}
+
+int kvm_arch_insert_hw_breakpoint(target_ulong addr,
+                                  target_ulong len, int type)
+{
+    hw_breakpoint[nb_hw_breakpoint + nb_hw_watchpoint].addr = addr;
+    hw_breakpoint[nb_hw_breakpoint + nb_hw_watchpoint].type = type;
+
+    switch (type) {
+    case GDB_BREAKPOINT_HW:
+        if (nb_hw_breakpoint >= max_hw_breakpoint) {
+            return -ENOBUFS;
+        }
+
+        if (find_hw_breakpoint(addr, type) >= 0) {
+            return -EEXIST;
+        }
+
+        nb_hw_breakpoint++;
+        break;
+
+    case GDB_WATCHPOINT_WRITE:
+    case GDB_WATCHPOINT_READ:
+    case GDB_WATCHPOINT_ACCESS:
+        if (nb_hw_watchpoint >= max_hw_watchpoint) {
+            return -ENOBUFS;
+        }
+
+        if (find_hw_breakpoint(addr, type) >= 0) {
+            return -EEXIST;
+        }
+
+        nb_hw_watchpoint++;
+        break;
+
+    default:
+        return -ENOSYS;
+    }
+
+    return 0;
+}
+
+int kvm_arch_remove_hw_breakpoint(target_ulong addr,
+                                  target_ulong len, int type)
+{
+    int n;
+
+    n = find_hw_breakpoint(addr, type);
+    if (n < 0) {
+        return -ENOENT;
+    }
+
+    switch (type) {
+    case GDB_BREAKPOINT_HW:
+        nb_hw_breakpoint--;
+        break;
+
+    case GDB_WATCHPOINT_WRITE:
+    case GDB_WATCHPOINT_READ:
+    case GDB_WATCHPOINT_ACCESS:
+        nb_hw_watchpoint--;
+        break;
+
+    default:
+        return -ENOSYS;
+    }
+    hw_breakpoint[n] = hw_breakpoint[nb_hw_breakpoint + nb_hw_watchpoint];
+
+    return 0;
+}
+
+void kvm_arch_remove_all_hw_breakpoints(void)
+{
+    nb_hw_breakpoint = nb_hw_watchpoint = 0;
+}
+
+static CPUWatchpoint hw_watchpoint;
+
+static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
+{
+    PowerPCCPU *cpu = POWERPC_CPU(cs);
+    CPUPPCState *env = &cpu->env;
+    int handle = 0;
+    int n;
+    int flag = 0;
+    struct kvm_debug_exit_arch arch_info = run->debug.arch;
+
+    if (env->singlestep_enabled) {
+        handle = 1;
+    } else if (arch_info.status) {
+        if (arch_info.status & KVMPPC_DEBUG_BREAKPOINT) {
+            n = find_hw_breakpoint(arch_info.address, GDB_BREAKPOINT_HW);
+            if (n >= 0) {
+                handle = 1;
+            }
+        } else if (arch_info.status & (KVMPPC_DEBUG_WATCH_READ |
+                                        KVMPPC_DEBUG_WATCH_WRITE)) {
+            n = find_hw_watchpoint(arch_info.address,  &flag);
+            if (n >= 0) {
+                handle = 1;
+                env->watchpoint_hit = &hw_watchpoint;
+                hw_watchpoint.vaddr = hw_breakpoint[n].addr;
+                hw_watchpoint.flags = flag;
+            }
+        }
+    } else if (kvm_find_sw_breakpoint(cs, arch_info.address)) {
+        handle = 1;
+    }
+
+    if (!handle) {
+       printf("unhandled\n");
+       /* inject guest debug exception */
+    }
+
+    return handle;
+}
+
+void kvm_arch_update_guest_debug(CPUState *cs, struct kvm_guest_debug *dbg)
+{
+    PowerPCCPU *cpu = POWERPC_CPU(cs);
+    CPUPPCState *env = &cpu->env;
+
+    if (kvm_sw_breakpoints_active(cs)) {
+        dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP;
+    }
+
+    if (nb_hw_breakpoint + nb_hw_watchpoint > 0) {
+        int n;
+
+        dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_HW_BP;
+        memset(dbg->arch.bp, 0, sizeof(dbg->arch.bp));
+        for (n = 0; n < nb_hw_breakpoint + nb_hw_watchpoint; n++) {
+            switch (hw_breakpoint[n].type) {
+            case GDB_BREAKPOINT_HW:
+                dbg->arch.bp[n].type = KVMPPC_DEBUG_BREAKPOINT;
+                break;
+            case GDB_WATCHPOINT_WRITE:
+                dbg->arch.bp[n].type = KVMPPC_DEBUG_WATCH_WRITE;
+                break;
+            case GDB_WATCHPOINT_READ:
+                dbg->arch.bp[n].type = KVMPPC_DEBUG_WATCH_READ;
+                break;
+            case GDB_WATCHPOINT_ACCESS:
+                dbg->arch.bp[n].type = KVMPPC_DEBUG_WATCH_WRITE |
+                                        KVMPPC_DEBUG_WATCH_READ;
+                break;
+            default:
+                cpu_abort(env, "Unsupported breakpoint type\n");
+            }
+            dbg->arch.bp[n].addr = hw_breakpoint[n].addr;
+        }
+    }
+}
+#endif /* KVM_CAP_SET_GUEST_DEBUG */
+
 int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
 {
     PowerPCCPU *cpu = POWERPC_CPU(cs);
@@ -856,6 +1105,17 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         run->epr.epr = ldl_phys(env->mpic_iack);
         ret = 0;
         break;
+#ifdef KVM_CAP_SET_GUEST_DEBUG
+    case KVM_EXIT_DEBUG:
+        dprintf("kvm_exit_debug\n");
+        if (kvm_handle_debug(cs, run)) {
+            ret = EXCP_DEBUG;
+            break;
+        }
+        /* re-enter, this exception was guest-internal */
+        ret = 0;
+        break;
+#endif
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
         ret = -1;
