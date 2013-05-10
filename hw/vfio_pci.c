@@ -1929,6 +1929,29 @@ static int vfio_connect_container(VFIOGroup *group)
 
         memory_listener_register(&container->iommu_data.listener,
                                  &address_space_memory);
+    } else if (ioctl(fd, VFIO_CHECK_EXTENSION, VFIO_IOMMU_DUMMY)) {
+        ret = ioctl(group->fd, VFIO_GROUP_SET_CONTAINER, &fd);
+        if (ret) {
+            error_report("vfio: failed to set group container: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        ret = ioctl(fd, VFIO_SET_IOMMU, VFIO_IOMMU_DUMMY);
+        if (ret) {
+            error_report("vfio: failed to set iommu for container: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+        peer_to_peer_not_supported = true;
+
+        container->iommu_data.listener = vfio_memory_listener;
+        container->iommu_data.release = vfio_listener_release;
+
+        memory_listener_register(&container->iommu_data.listener,
+                                 &address_space_memory);
     } else {
         error_report("vfio: No available IOMMU models");
         g_free(container);
