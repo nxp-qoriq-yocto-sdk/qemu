@@ -243,7 +243,8 @@ static void ppc_booke_timer_reset_handle(void *opaque)
     PowerPCCPU *cpu = opaque;
     CPUPPCState *env = &cpu->env;
 
-    store_booke_tcr(env, 0);
+    env->spr[SPR_BOOKE_TCR] = 0;
+    kvmppc_set_tcr(cpu);
     store_booke_tsr(env, -1);
 }
 
