@@ -56,6 +56,7 @@
 #include "translate-all.h"
 
 #include "exec/memory-internal.h"
+#include "qemu/cache-utils.h"
 
 //#define DEBUG_SUBPAGE
 
@@ -2125,6 +2126,12 @@ void cpu_physical_memory_write_rom(hwaddr addr,
             ptr = qemu_get_ram_ptr(addr1);
             memcpy(ptr, buf, l);
             invalidate_and_set_dirty(addr1, l);
+            /* qemu doesn't execute guest code directly, but kvm does
+               therefore flush instruction caches */
+            if (kvm_enabled()) {
+                flush_icache_range((unsigned long)ptr,
+                                   (unsigned long)ptr + l);
+            }
         }
         len -= l;
         buf += l;
