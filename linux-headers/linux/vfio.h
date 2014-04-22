@@ -22,9 +22,9 @@
 /* Extensions */
 
 #define VFIO_TYPE1_IOMMU		1
-#define VFIO_SPAPR_TCE_IOMMU		0
-#define VFIO_FSL_PAMU_IOMMU		2
-#define VFIO_IOMMU_DUMMY		3
+#define VFIO_SPAPR_TCE_IOMMU		2
+#define VFIO_FSL_PAMU_IOMMU		1000
+#define VFIO_IOMMU_DUMMY		1001
 
 /*
  * The IOCTL interface is designed for extensibility by embedding the
@@ -420,37 +420,6 @@ struct vfio_iommu_type1_dma_unmap {
 
 #define VFIO_IOMMU_UNMAP_DMA _IO(VFIO_TYPE, VFIO_BASE + 14)
 
-/*
- * IOCTLs to enable/disable IOMMU container usage.
- * No parameters are supported.
- */
-#define VFIO_IOMMU_ENABLE	_IO(VFIO_TYPE, VFIO_BASE + 15)
-#define VFIO_IOMMU_DISABLE	_IO(VFIO_TYPE, VFIO_BASE + 16)
-
-/* -------- Additional API for SPAPR TCE (Server POWERPC) IOMMU -------- */
-
-/*
- * The SPAPR TCE info struct provides the information about the PCI bus
- * address ranges available for DMA, these values are programmed into
- * the hardware so the guest has to know that information.
- *
- * The DMA 32 bit window start is an absolute PCI bus address.
- * The IOVA address passed via map/unmap ioctls are absolute PCI bus
- * addresses too so the window works as a filter rather than an offset
- * for IOVA addresses.
- *
- * A flag will need to be added if other page sizes are supported,
- * so as defined here, it is always 4k.
- */
-struct vfio_iommu_spapr_tce_info {
-	__u32 argsz;
-	__u32 flags;			/* reserved for future use */
-	__u32 dma32_window_start;	/* 32 bit window start (bytes) */
-	__u32 dma32_window_size;	/* 32 bit window size (bytes) */
-};
-
-#define VFIO_IOMMU_SPAPR_TCE_GET_INFO	_IO(VFIO_TYPE, VFIO_BASE + 12)
-
 /*********** APIs for VFIO_PAMU type only ****************/
 /*
  * VFIO_IOMMU_PAMU_GET_ATTR - _IO(VFIO_TYPE, VFIO_BASE + 15,
@@ -492,7 +461,7 @@ struct vfio_pamu_attr {
 	} attr_info;
 };
 #define VFIO_IOMMU_PAMU_GET_ATTR  _IO(VFIO_TYPE, VFIO_BASE + 15)
- 
+
 /*
  * VFIO_IOMMU_PAMU_SET_ATTR - _IO(VFIO_TYPE, VFIO_BASE + 16,
  *				  struct vfio_pamu_attr)
@@ -503,7 +472,7 @@ struct vfio_pamu_attr {
  * Return: 0 on success, -errno on failure
  */
 #define VFIO_IOMMU_PAMU_SET_ATTR  _IO(VFIO_TYPE, VFIO_BASE + 16)
- 
+
 /*
  * VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT - _IO(VFIO_TYPE, VFIO_BASE + 17, __u32)
  *
@@ -532,7 +501,7 @@ struct vfio_pamu_msi_bank_map {
 	__u64	iova;		/* the iova the bank is to be mapped to */
 };
 #define VFIO_IOMMU_PAMU_MAP_MSI_BANK  _IO(VFIO_TYPE, VFIO_BASE + 18)
- 
+
 /*
  * VFIO_IOMMU_PAMU_UNMAP_MSI_BANK - _IO(VFIO_TYPE, VFIO_BASE + 19,
  *					struct vfio_pamu_msi_bank_unmap)
@@ -542,13 +511,44 @@ struct vfio_pamu_msi_bank_map {
  * Operates on VFIO file descriptor (/dev/vfio/vfio).
  * Return: 0 on success, -errno on failure
  */
- 
+
 struct vfio_pamu_msi_bank_unmap {
 	__u32	argsz;
 	__u32	flags;	/* no flags currently */
 	__u64	iova;	/* the iova to be unmapped to */
 };
 #define VFIO_IOMMU_PAMU_UNMAP_MSI_BANK  _IO(VFIO_TYPE, VFIO_BASE + 19)
+
+/*
+ * IOCTLs to enable/disable IOMMU container usage.
+ * No parameters are supported.
+ */
+#define VFIO_IOMMU_ENABLE	_IO(VFIO_TYPE, VFIO_BASE + 15)
+#define VFIO_IOMMU_DISABLE	_IO(VFIO_TYPE, VFIO_BASE + 16)
+
+/* -------- Additional API for SPAPR TCE (Server POWERPC) IOMMU -------- */
+
+/*
+ * The SPAPR TCE info struct provides the information about the PCI bus
+ * address ranges available for DMA, these values are programmed into
+ * the hardware so the guest has to know that information.
+ *
+ * The DMA 32 bit window start is an absolute PCI bus address.
+ * The IOVA address passed via map/unmap ioctls are absolute PCI bus
+ * addresses too so the window works as a filter rather than an offset
+ * for IOVA addresses.
+ *
+ * A flag will need to be added if other page sizes are supported,
+ * so as defined here, it is always 4k.
+ */
+struct vfio_iommu_spapr_tce_info {
+	__u32 argsz;
+	__u32 flags;			/* reserved for future use */
+	__u32 dma32_window_start;	/* 32 bit window start (bytes) */
+	__u32 dma32_window_size;	/* 32 bit window size (bytes) */
+};
+
+#define VFIO_IOMMU_SPAPR_TCE_GET_INFO	_IO(VFIO_TYPE, VFIO_BASE + 12)
 
 /* ***************************************************************** */
 
