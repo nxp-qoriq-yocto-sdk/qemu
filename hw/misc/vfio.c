@@ -2086,7 +2086,7 @@ static int memory_region_not_in_ram_space(VFIOContainer *container,
 
     QLIST_FOREACH(group, &group_list, next) {
         /* skip if memory is not within ram, i.e mmaped BARs*/
-        if (memory_region_get_ram_addr(section->mr) > ram_size) {
+        if (memory_region_get_ram_addr(section->mr) >= ram_size) {
             return 1;
         }
     }
