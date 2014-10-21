@@ -744,6 +744,8 @@
                     CPU_POWERPC_e5500_v11,    POWERPC_SVR_E500,      e5500)
     POWERPC_DEF_SVR("e5500_v1020", "PowerPC e5500 v102.0 core",
                     CPU_POWERPC_e5500_v1020,    POWERPC_SVR_E500,    e5500)
+    POWERPC_DEF_SVR("e5500_v1021", "PowerPC e5500 v102.1 core",
+                    CPU_POWERPC_e5500_v1021,    POWERPC_SVR_E500,    e5500)
 
     /* e6500 family */
     POWERPC_DEF_SVR("e6500", "e6500",
