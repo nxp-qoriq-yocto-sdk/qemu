@@ -369,6 +369,7 @@ enum {
     CPU_POWERPC_e5500_v11          = 0x80240011,
     CPU_POWERPC_e5500_v12          = 0x80240012,
     CPU_POWERPC_e5500_v1020        = 0x80241020,
+    CPU_POWERPC_e5500_v1021        = 0x80241021,
     CPU_POWERPC_e6500_v10          = 0x80400010,
     CPU_POWERPC_e6500_v20          = 0x80400020,
     CPU_POWERPC_e6500_v120         = 0x80400120,
