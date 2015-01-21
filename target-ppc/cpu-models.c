@@ -679,19 +679,79 @@
                     CPU_POWERPC_e500v1_v20,   POWERPC_SVR_E500,      e500v1);
     POWERPC_DEF_SVR("e500v2_v10", "PowerPC e500v2 v1.0 core",
                     CPU_POWERPC_e500v2_v10,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v11", "PowerPC e500v2 v1.1 core",
+                    CPU_POWERPC_e500v2_v11,   POWERPC_SVR_E500,      e500v2);
     POWERPC_DEF_SVR("e500v2_v20", "PowerPC e500v2 v2.0 core",
                     CPU_POWERPC_e500v2_v20,   POWERPC_SVR_E500,      e500v2);
     POWERPC_DEF_SVR("e500v2_v21", "PowerPC e500v2 v2.1 core",
                     CPU_POWERPC_e500v2_v21,   POWERPC_SVR_E500,      e500v2);
     POWERPC_DEF_SVR("e500v2_v22", "PowerPC e500v2 v2.2 core",
                     CPU_POWERPC_e500v2_v22,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v23", "PowerPC e500v2 v2.3 core",
+                    CPU_POWERPC_e500v2_v23,   POWERPC_SVR_E500,      e500v2);
     POWERPC_DEF_SVR("e500v2_v30", "PowerPC e500v2 v3.0 core",
                     CPU_POWERPC_e500v2_v30,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v31", "PowerPC e500v2 v3.1 core",
+                    CPU_POWERPC_e500v2_v31,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v1040", "PowerPC e500v2 v104.0 core",
+                    CPU_POWERPC_e500v2_v1040,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v1050", "PowerPC e500v2 v105.0 core",
+                    CPU_POWERPC_e500v2_v1050,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v1051", "PowerPC e500v2 v105.1 core",
+                    CPU_POWERPC_e500v2_v1051,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v1151", "PowerPC e500v2 v115.1 core",
+                    CPU_POWERPC_e500v2_v1151,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v1152", "PowerPC e500v2 v115.2 core",
+                    CPU_POWERPC_e500v2_v1152,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v2050", "PowerPC e500v2 v205.0 core",
+                    CPU_POWERPC_e500v2_v2050,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v2051", "PowerPC e500v2 v205.1 core",
+                    CPU_POWERPC_e500v2_v2051,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v2151", "PowerPC e500v2 v215.1 core",
+                    CPU_POWERPC_e500v2_v2151,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v2152", "PowerPC e500v2 v215.2 core",
+                    CPU_POWERPC_e500v2_v2152,   POWERPC_SVR_E500,      e500v2);
+    POWERPC_DEF_SVR("e500v2_v2251", "PowerPC e500v2 v225.1 core",
+                    CPU_POWERPC_e500v2_v2251,   POWERPC_SVR_E500,      e500v2);
+
+    /* e500mc family */
     POWERPC_DEF_SVR("e500mc", "e500mc",
-                    CPU_POWERPC_e500mc,       POWERPC_SVR_E500,      e500mc)
+                    CPU_POWERPC_e500mc_v20,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v10", "PowerPC e500mc v1.0 core",
+                    CPU_POWERPC_e500mc_v10,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v21", "PowerPC e500mc v2.1 core",
+                    CPU_POWERPC_e500mc_v21,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v22", "PowerPC e500mc v2.2 core",
+                    CPU_POWERPC_e500mc_v22,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v23", "PowerPC e500mc v2.3 core",
+                    CPU_POWERPC_e500mc_v23,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v1030", "PowerPC e500mc v103.0 core",
+                    CPU_POWERPC_e500mc_v1030, POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v30", "PowerPC e500mc v3.0 core",
+                    CPU_POWERPC_e500mc_v30,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v31", "PowerPC e500mc v3.1 core",
+                    CPU_POWERPC_e500mc_v31,   POWERPC_SVR_E500,      e500mc)
+    POWERPC_DEF_SVR("e500mc_v32", "PowerPC e500mc v3.2 core",
+                    CPU_POWERPC_e500mc_v32,   POWERPC_SVR_E500,      e500mc)
+
 #ifdef TARGET_PPC64
+    /* e5500 family */
     POWERPC_DEF_SVR("e5500", "e5500",
-                    CPU_POWERPC_e5500,        POWERPC_SVR_E500,      e5500)
+                    CPU_POWERPC_e5500_v12,    POWERPC_SVR_E500,      e5500)
+    POWERPC_DEF_SVR("e5500_v10", "PowerPC e5500 v1.0 core",
+                    CPU_POWERPC_e5500_v10,    POWERPC_SVR_E500,      e5500)
+    POWERPC_DEF_SVR("e5500_v11", "PowerPC e5500 v1.1 core",
+                    CPU_POWERPC_e5500_v11,    POWERPC_SVR_E500,      e5500)
+    POWERPC_DEF_SVR("e5500_v1020", "PowerPC e5500 v102.0 core",
+                    CPU_POWERPC_e5500_v1020,    POWERPC_SVR_E500,    e5500)
+
+    /* e6500 family */
+    POWERPC_DEF_SVR("e6500", "e6500",
+                    CPU_POWERPC_e6500_v10,    POWERPC_SVR_E500,      e6500)
+    POWERPC_DEF_SVR("e6500_v20", "PowerPC e6500 v2.0 core",
+                    CPU_POWERPC_e6500_v20,    POWERPC_SVR_E500,      e6500)
+    POWERPC_DEF_SVR("e6500_v120", "PowerPC e6500 v12.0 core",
+                    CPU_POWERPC_e6500_v120,    POWERPC_SVR_E500,     e6500)
 #endif
     /* PowerPC e500 microcontrollers                                         */
     POWERPC_DEF_SVR("MPC8533_v10", "MPC8533 v1.0",
