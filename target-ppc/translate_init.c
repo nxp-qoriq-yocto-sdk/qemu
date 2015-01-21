@@ -4709,6 +4709,7 @@ enum fsl_e500_version {
     fsl_e500v2,
     fsl_e500mc,
     fsl_e5500,
+    fsl_e6500,
 };
 
 static void init_proc_e500 (CPUPPCState *env, int version)
@@ -4740,6 +4741,7 @@ static void init_proc_e500 (CPUPPCState *env, int version)
             break;
         case fsl_e500mc:
         case fsl_e5500:
+        case fsl_e6500: /* XXX check if correct */
             ivor_mask = 0x000003FE0000FFFFULL;
             break;
     }
@@ -4770,6 +4772,7 @@ static void init_proc_e500 (CPUPPCState *env, int version)
         break;
     case fsl_e500mc:
     case fsl_e5500:
+    case fsl_e6500: /* XXX check if correct */
         tlbncfg[0] = gen_tlbncfg(4, 1, 1, 0, 512);
         tlbncfg[1] = gen_tlbncfg(64, 1, 12, TLBnCFG_AVAIL | TLBnCFG_IPROT, 64);
         break;
@@ -4786,6 +4789,7 @@ static void init_proc_e500 (CPUPPCState *env, int version)
         break;
     case fsl_e500mc:
     case fsl_e5500:
+    case fsl_e6500: /* XXX check if correct */
         env->dcache_line_size = 64;
         env->icache_line_size = 64;
         l1cfg0 |= 0x1000000; /* 64 byte cache block size */
@@ -4869,7 +4873,7 @@ static void init_proc_e500 (CPUPPCState *env, int version)
                  &spr_read_generic, SPR_NOACCESS,
                  0x00000000);
     /* XXX better abstract into Emb.xxx features */
-    if (version == fsl_e5500) {
+    if (version == fsl_e5500 || version == fsl_e6500) {
         spr_register(env, SPR_BOOKE_EPCR, "EPCR",
                      SPR_NOACCESS, SPR_NOACCESS,
                      &spr_read_generic, &spr_write_generic,
@@ -5069,6 +5073,40 @@ POWERPC_FAMILY(e5500)(ObjectClass *oc, void *data)
     pcc->excp_model = POWERPC_EXCP_BOOKE;
     pcc->bus_model = PPC_FLAGS_INPUT_BookE;
     /* FIXME: figure out the correct flag for e5500 */
+    pcc->bfd_mach = bfd_mach_ppc_e500;
+    pcc->flags = POWERPC_FLAG_CE | POWERPC_FLAG_DE |
+                 POWERPC_FLAG_PMM | POWERPC_FLAG_BUS_CLK;
+}
+
+/* XXX check if all values are correct for e6500 */
+static void init_proc_e6500(CPUPPCState *env)
+{
+    init_proc_e500(env, fsl_e6500);
+}
+
+POWERPC_FAMILY(e6500)(ObjectClass *oc, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+    PowerPCCPUClass *pcc = POWERPC_CPU_CLASS(oc);
+
+    dc->desc = "e6500 core";
+    pcc->init_proc = init_proc_e6500;
+    pcc->check_pow = check_pow_none;
+    pcc->insns_flags = PPC_INSNS_BASE | PPC_ISEL |
+                       PPC_WRTEE | PPC_RFDI | PPC_RFMCI |
+                       PPC_CACHE | PPC_CACHE_LOCK | PPC_CACHE_ICBI |
+                       PPC_CACHE_DCBZ | PPC_CACHE_DCBA |
+                       PPC_FLOAT | PPC_FLOAT_FRES |
+                       PPC_FLOAT_FRSQRTE | PPC_FLOAT_FSEL |
+                       PPC_FLOAT_STFIWX | PPC_WAIT |
+                       PPC_MEM_TLBSYNC | PPC_TLBIVAX | PPC_MEM_SYNC |
+                       PPC_64B | PPC_POPCNTB | PPC_POPCNTWD;
+    pcc->insns_flags2 = PPC2_BOOKE206 | PPC2_PRCNTL;
+    pcc->msr_mask = 0x000000009402FB36ULL;
+    pcc->mmu_model = POWERPC_MMU_BOOKE206;
+    pcc->excp_model = POWERPC_EXCP_BOOKE;
+    pcc->bus_model = PPC_FLAGS_INPUT_BookE;
+    /* FIXME: figure out the correct flag for e6500 */
     pcc->bfd_mach = bfd_mach_ppc_e500;
     pcc->flags = POWERPC_FLAG_CE | POWERPC_FLAG_DE |
                  POWERPC_FLAG_PMM | POWERPC_FLAG_BUS_CLK;
