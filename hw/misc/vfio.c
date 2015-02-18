@@ -24,6 +24,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -57,6 +58,13 @@
 #define VFIO_ALLOW_KVM_MSIX 1
 
 struct VFIODevice;
+
+/* FIXME: A global variable which indicate that peer to peer
+ * PCI device communication is not supported. This is used for
+ * FSL IOMMU (PAMU) as setting aperture for PCI BARs is a bit
+ * complex. This will be fixed soon.
+ */
+bool peer_to_peer_not_supported;
 
 typedef struct VFIOQuirk {
     MemoryRegion mem;
@@ -2462,7 +2470,7 @@ static int vfio_dma_map(VFIOContainer *container, hwaddr iova,
 
 static bool vfio_listener_skipped_section(MemoryRegionSection *section)
 {
-    return (!memory_region_is_ram(section->mr) &&
+    if ((!memory_region_is_ram(section->mr) &&
             !memory_region_is_iommu(section->mr)) ||
            /*
             * Sizing an enabled 64-bit BAR can cause spurious mappings to
@@ -2470,7 +2478,19 @@ static bool vfio_listener_skipped_section(MemoryRegionSection *section)
             * are never accessed by the CPU and beyond the address width of
             * some IOMMU hardware.  TODO: VFIO should tell us the IOMMU width.
             */
-           section->offset_within_address_space & (1ULL << 63);
+           section->offset_within_address_space & (1ULL << 63)) {
+        return 1;
+    }
+
+    /* peer to peer PCI communication is not supported with FSL_PAMU*/
+    if (!peer_to_peer_not_supported) {
+        return 0;
+    }
+
+    if (memory_region_get_ram_addr(section->mr) >= ram_size) {
+        return 1;
+    }
+    return 0;
 }
 
 static void vfio_iommu_map_notify(Notifier *n, void *data)
@@ -3650,11 +3670,130 @@ static void vfio_put_address_space(VFIOAddressSpace *space)
     }
 }
 
+static int vfio_iommu_set_attr_geom(int fd, hwaddr start, hwaddr end)
+{
+    struct vfio_pamu_attr pamu_attr = {
+        .argsz = sizeof(pamu_attr),
+        .flags = 0,
+        .attribute = VFIO_ATTR_GEOMETRY,
+        .attr_info.attr.aperture_start = start,
+        .attr_info.attr.aperture_end = end,
+    };
+
+    return ioctl(fd, VFIO_IOMMU_PAMU_SET_ATTR, &pamu_attr);
+}
+
+static int vfio_iommu_get_attr_win(int fd, uint32_t *windows)
+{
+    int ret;
+    struct vfio_pamu_attr pamu_attr = {
+        .argsz = sizeof(pamu_attr),
+        .flags = 0,
+        .attribute = VFIO_ATTR_WINDOWS,
+        .attr_info.windows = 0,
+    };
+
+    ret = ioctl(fd, VFIO_IOMMU_PAMU_GET_ATTR, &pamu_attr);
+    if (ret) {
+        return ret;
+    }
+
+    *windows = pamu_attr.attr_info.windows;
+    return 0;
+}
+
+static int vfio_iommu_set_attr_win(int fd, int windows)
+{
+    struct vfio_pamu_attr pamu_attr = {
+        .argsz = sizeof(pamu_attr),
+        .flags = 0,
+        .attribute = VFIO_ATTR_WINDOWS,
+        .attr_info.windows = windows,
+    };
+
+    return ioctl(fd, VFIO_IOMMU_PAMU_SET_ATTR, &pamu_attr);
+}
+
+static int vfio_iommu_msi_map(int fd, hwaddr iova, hwaddr align, int count)
+{
+    int ret = 0, i;
+    struct vfio_pamu_msi_bank_map msi_map = {
+        .argsz = sizeof(msi_map),
+        .flags = VFIO_DMA_MAP_FLAG_WRITE | VFIO_DMA_MAP_FLAG_READ,
+    };
+
+    for (i = 0; i < count; i++) {
+        msi_map.msi_bank_index = i;
+        msi_map.iova = iova + align * i;
+
+        ret = ioctl(fd, VFIO_IOMMU_PAMU_MAP_MSI_BANK, &msi_map);
+        if (ret) {
+            return ret;
+        }
+    }
+    return ret;
+}
+
+static int vfio_iommu_msi_unmap(int fd, hwaddr iova, hwaddr align, int count)
+{
+    int ret = 0, i;
+    struct vfio_pamu_msi_bank_unmap msi_unmap = {
+        .argsz = sizeof(msi_unmap),
+        .flags = 0,
+    };
+
+    for (i = 0; i < count; i++) {
+        msi_unmap.iova = iova + align * i;
+
+        ret = ioctl(fd, VFIO_IOMMU_PAMU_UNMAP_MSI_BANK, &msi_unmap);
+        if (ret) {
+            return ret;
+        }
+    }
+
+    return ret;
+}
+
+static long getrampagesize(void)
+{
+    struct statfs fs;
+    int ret;
+
+    if (!mem_path) {
+        /* guest RAM is backed by normal anonymous pages */
+        return getpagesize();
+    }
+
+    do {
+        ret = statfs(mem_path, &fs);
+    } while (ret != 0 && errno == EINTR);
+
+    if (ret != 0) {
+        fprintf(stderr, "Couldn't statfs() memory path: %s\n",
+                strerror(errno));
+        exit(1);
+    }
+
+#define HUGETLBFS_MAGIC       0x958458f6
+
+    if (fs.f_type != HUGETLBFS_MAGIC) {
+        /* Explicit mempath, but it's ordinary pages */
+        return getpagesize();
+    }
+
+    /* It's hugepage, return the huge page size */
+    return fs.f_bsize;
+}
+
 static int vfio_connect_container(VFIOGroup *group, AddressSpace *as)
 {
     VFIOContainer *container;
     int ret, fd;
     VFIOAddressSpace *space;
+    hwaddr iova_start, iova_align_size;
+    int count;
+    unsigned long pagesize;
+    uint32_t num_windows, max_windows;
 
     space = vfio_get_address_space(as);
 
@@ -3746,6 +3885,93 @@ static int vfio_connect_container(VFIOGroup *group, AddressSpace *as)
 
         memory_listener_register(&container->iommu_data.type1.listener,
                                  container->space->as);
+
+    } else if (ioctl(fd, VFIO_CHECK_EXTENSION, VFIO_FSL_PAMU_IOMMU)) {
+        ret = ioctl(group->fd, VFIO_GROUP_SET_CONTAINER, &fd);
+        if (ret) {
+            error_report("vfio: failed to set group container: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        ret = ioctl(fd, VFIO_SET_IOMMU, VFIO_FSL_PAMU_IOMMU);
+        if (ret) {
+            error_report("vfio: failed to set iommu for container: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        count = ioctl(fd, VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT, NULL);
+        if (count < 0) {
+            error_report("vfio: error getting msi bank count: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        ret = vfio_iommu_get_attr_win(fd, &max_windows);
+        if (ret) {
+            error_report("vfio: error getting VFIO_ATTR_WINDOWS: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        pagesize = getrampagesize();
+        num_windows = ram_size / pagesize;
+        num_windows += count;
+        if (!is_power_of_2(num_windows)) {
+            num_windows = pow2floor(num_windows);
+            num_windows = num_windows << 1;
+        }
+
+        if (num_windows > max_windows) {
+            error_report("vfio: Number of windows needed (%d) is more than"
+                          "h/w supported (%d): %m", num_windows, max_windows);
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+        /* Set geometry from  0 to (pagesize * num_windows - 1) */
+        ret = vfio_iommu_set_attr_geom(fd, 0, pagesize * num_windows - 1);
+        if (ret) {
+            error_report("vfio: error setting VFIO_ATTR_GEOMETRY: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        ret = vfio_iommu_set_attr_win(fd, num_windows);
+        if (ret) {
+            error_report("vfio: error setting VFIO_ATTR_WINDOWS: %m");
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+
+        iova_start = ram_size;
+        iova_align_size = pagesize;
+        ret = vfio_iommu_msi_map(fd, iova_start, iova_align_size, count);
+        if (ret) {
+            error_report("vfio: error setting MSI_MAP: %m");
+            vfio_iommu_msi_unmap(fd, iova_start, iova_align_size, count);
+            g_free(container);
+            close(fd);
+            return -errno;
+        }
+        /* FIXME: currently we do not support peer to peer PCI device
+         * communication. This because of the complexity it creates for
+         * setting up PAMU.
+         */
+        peer_to_peer_not_supported = true;
+
+        container->iommu_data.type1.listener = vfio_memory_listener;
+        container->iommu_data.release = vfio_listener_release;
+
+        memory_listener_register(&container->iommu_data.type1.listener,
+                                 &address_space_memory);
 
     } else {
         error_report("vfio: No available IOMMU models");
