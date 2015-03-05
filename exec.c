@@ -1056,6 +1056,10 @@ void qemu_mutex_unlock_ramlist(void)
 
 #ifdef __linux__
 
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/vfs.h>
 
 #define HUGETLBFS_MAGIC       0x958458f6
@@ -1081,9 +1085,114 @@ static long gethugepagesize(const char *path, Error **errp)
     return fs.f_bsize;
 }
 
+#define PROC_DIR_NAME       "/proc"
+#define FILENAMELEN         256
+#define LINELEN             512
+
+#define MAPS_NAME           "maps"
+#define PAGEMAP_NAME        "pagemap"
+
+static off64_t get_pmap_index(unsigned long addr, FILE *map_file, const char *path)
+{
+    unsigned long vm_start;
+    unsigned long vm_end;
+    int n;
+    char line[LINELEN];
+    long index = -1;
+
+    while (fgets(line, LINELEN, map_file) != NULL) {
+
+        /* evaluate the range of virtual addresses */
+        n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
+        if (n != 2) {
+            fprintf(stderr, "Invalid line read from map file: %s (6)\n", line);
+            continue;
+        }
+
+        if (addr >= vm_start && addr <= vm_end) {
+            index = (vm_start / 4096) * sizeof(unsigned long long);
+            break;
+        }
+    }
+
+    return index;
+}
+
+#define PM_STATUS_BITS      3
+#define PM_STATUS_OFFSET    (64 - PM_STATUS_BITS)
+#define PM_STATUS_MASK      (((1ULL << PM_STATUS_BITS) - 1) << PM_STATUS_OFFSET)
+#define PM_STATUS(nr)       (((nr) << PM_STATUS_OFFSET) & PM_STATUS_MASK)
+#define PM_PSHIFT_BITS      6
+#define PM_PSHIFT_OFFSET    (PM_STATUS_OFFSET - PM_PSHIFT_BITS)
+#define PM_PSHIFT_MASK      (((1ULL << PM_PSHIFT_BITS) - 1) << PM_PSHIFT_OFFSET)
+#define PM_PSHIFT(x)        (((unsigned long long) (x) << PM_PSHIFT_OFFSET) & PM_PSHIFT_MASK)
+#define PM_PFRAME_MASK      ((1ULL << PM_PSHIFT_OFFSET) - 1)
+#define PM_PFRAME(x)        ((x) & PM_PFRAME_MASK)
+
+#define PM_PRESENT          PM_STATUS(4ULL)
+#define PM_SWAP             PM_STATUS(2ULL)
+#define PM_FILE             PM_STATUS(1ULL)
+#define PM_NOT_PRESENT      PM_PSHIFT(PAGE_SHIFT)
+
+static unsigned long get_phys_addr(unsigned long addr, const char *path)
+{
+    int pm = -1;
+    FILE *m = NULL;
+    char map_file[FILENAMELEN];
+    char pmap_file[FILENAMELEN];
+    off64_t pm_offset, index;
+    unsigned long long pa = RAM_ADDR_MAX;
+    ssize_t size;
+    int page_shift;
+
+    /* Open pid/maps file for reading */
+    sprintf(map_file, "%s/%d/%s", PROC_DIR_NAME, getpid(), MAPS_NAME);
+    m = fopen(map_file, "r");
+    if (m == NULL) {
+           fprintf(stderr, "Unable to open %s for reading\n", map_file);
+           goto err;
+    }
+
+    /* Open pid/pagemap file for reading */
+    sprintf(pmap_file, "%s/%d/%s", PROC_DIR_NAME, getpid(), PAGEMAP_NAME);
+    pm = open(pmap_file, O_RDONLY);
+    if (pm == -1) {
+          fprintf(stderr, "Unable to open %s for reading\n", pmap_file);
+          goto err;
+    }
+
+    index = get_pmap_index(addr, m, path);
+    if (index < 0)
+         goto err;
+
+    pm_offset = lseek64(pm, index, SEEK_SET);
+    if (pm_offset != index) {
+        fprintf(stderr, "Error seeking to %llx in file %s\n", index, pmap_file);
+        goto err;
+    }
+
+    size = read(pm, &pa, sizeof(unsigned long long));
+    if (size < 0) {
+        fprintf(stderr, "Error reading file %s\n", pmap_file);
+        goto err;
+    }
+
+    if (!(pa & PM_PRESENT)) {
+        fprintf(stderr, "page not present %llx\n", pa);
+        pa = RAM_ADDR_MAX;
+    } else {
+        page_shift = (pa & PM_PSHIFT_MASK) >> PM_PSHIFT_OFFSET;
+        pa = PM_PFRAME(pa) << page_shift;
+    }
+
+err:
+    return (unsigned long)pa;
+}
+
 static void *file_ram_alloc(RAMBlock *block,
                             ram_addr_t memory,
                             const char *path,
+			     unsigned long *offset,
                             Error **errp)
 {
     char *filename;
@@ -1162,6 +1271,13 @@ static void *file_ram_alloc(RAMBlock *block,
     }
 
     block->fd = fd;
+
+    /* check if this is the direct mapped memory case */
+    if (offset) {
+        /* touch all pages to ensure that the hugetlb page is mapped */
+        memset(area, 0, memory);
+        *offset = get_phys_addr((unsigned long)area, path);
+    }
     return area;
 
 error:
@@ -1305,7 +1421,9 @@ static ram_addr_t ram_block_add(RAMBlock *new_block, Error **errp)
 
     /* This assumes the iothread lock is taken here too.  */
     qemu_mutex_lock_ramlist();
-    new_block->offset = find_ram_offset(new_block->length);
+    /* In case of identity map, offset would have already been set */
+    if (!new_block->offset)
+        new_block->offset = find_ram_offset(new_block->length);
 
     if (!new_block->host) {
         if (xen_enabled()) {
@@ -1371,6 +1489,7 @@ ram_addr_t qemu_ram_alloc_from_file(ram_addr_t size, MemoryRegion *mr,
     RAMBlock *new_block;
     ram_addr_t addr;
     Error *local_err = NULL;
+    unsigned long *ptr = NULL;
 
     if (xen_enabled()) {
         error_setg(errp, "-mem-path not supported with Xen");
@@ -1393,8 +1512,21 @@ ram_addr_t qemu_ram_alloc_from_file(ram_addr_t size, MemoryRegion *mr,
     new_block->mr = mr;
     new_block->length = size;
     new_block->flags = share ? RAM_SHARED : 0;
+
+    if (memory_region_is_identity_map(mr)) {
+        Error *err = NULL;
+        if (size != gethugepagesize(mem_path, &err)) {
+            printf("Can't support direct map memory with current huge page size\n");
+            exit(1);
+        }
+        new_block->offset = 0;
+        ptr = (unsigned long *)&new_block->offset;
+    }
     new_block->host = file_ram_alloc(new_block, size,
-                                     mem_path, errp);
+                                     mem_path, ptr, errp);
+    if (ptr && *ptr == RAM_ADDR_MAX)
+            exit(1);
+
     if (!new_block->host) {
         g_free(new_block);
         return -1;

@@ -262,6 +262,14 @@ STEXI
 Preallocate memory when using -mem-path.
 ETEXI
 
+DEF("identity_map", 0, QEMU_OPTION_identity_map,
+    "-identity_map    Enabled identity_map memory support\n", QEMU_ARCH_ALL)
+STEXI
+@item -identity_map
+@findex -identity_map
+Enabled identity_map memory support (1:1) guest to host physical.
+ETEXI
+
 DEF("k", HAS_ARG, QEMU_OPTION_k,
     "-k language     use keyboard layout (for example 'fr' for French)\n",
     QEMU_ARCH_ALL)

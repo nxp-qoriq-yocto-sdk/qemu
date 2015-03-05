@@ -134,6 +134,7 @@ const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
 const char *mem_path = NULL;
 int mem_prealloc = 0; /* force preallocation of physical target memory */
+bool identity_map = false; /* for 1:1 guest to host physical mapping */
 bool enable_mlock = false;
 int nb_nics;
 NICInfo nd_table[MAX_NICS];
@@ -3048,6 +3049,9 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_dtb:
                 qemu_opts_set(qemu_find_opts("machine"), 0, "dtb", optarg);
                 break;
+            case QEMU_OPTION_identity_map:
+                identity_map = 1;
+                break;
             case QEMU_OPTION_cdrom:
                 drive_add(IF_DEFAULT, 2, optarg, CDROM_OPTS);
                 break;
@@ -4121,6 +4125,11 @@ int main(int argc, char **argv, char **envp)
     }
 
     linux_boot = (kernel_filename != NULL);
+
+    if (!linux_boot && identity_map) {
+        fprintf(stderr, "-identity_map only allowed with -kernel option\n");
+        exit(1);
+    }
 
     if (!linux_boot && *kernel_cmdline != '\0') {
         fprintf(stderr, "-append only allowed with -kernel option\n");

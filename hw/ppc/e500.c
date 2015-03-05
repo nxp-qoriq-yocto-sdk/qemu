@@ -62,10 +62,16 @@
 #define MPC8XXX_GPIO_OFFSET        0x000FF000ULL
 #define MPC8XXX_GPIO_IRQ           43
 
+extern bool identity_map;
+
 struct boot_info
 {
+    hwaddr ram_start;
+    hwaddr ram_end;
     uint32_t dt_base;
     uint32_t dt_size;
+    hwaddr kernel_start;
+    hwaddr kernel_end;
     uint32_t entry;
 };
 
@@ -269,7 +275,8 @@ static int ppce500_load_device_tree(MachineState *machine,
 {
     CPUPPCState *env = first_cpu->env_ptr;
     int ret = -1;
-    uint64_t mem_reg_property[] = { 0, cpu_to_be64(machine->ram_size) };
+    struct boot_info *bi = env->load_info;
+    uint64_t mem_reg_property[] = {bi->ram_start, bi->ram_end - bi->ram_start + 1};
     int fdt_size;
     void *fdt;
     uint8_t hypercall[16];
@@ -632,6 +639,7 @@ static uint64_t mmubooke_initial_mapsize(CPUPPCState *env)
 static void mmubooke_create_initial_mapping(CPUPPCState *env)
 {
     ppcmas_tlb_t *tlb = booke206_get_tlbm(env, 1, 0, 0);
+    struct boot_info *bi = env->load_info;
     hwaddr size;
     int ps;
 
@@ -639,7 +647,7 @@ static void mmubooke_create_initial_mapping(CPUPPCState *env)
     size = (ps << MAS1_TSIZE_SHIFT);
     tlb->mas1 = MAS1_VALID | size;
     tlb->mas2 = 0;
-    tlb->mas7_3 = 0;
+    tlb->mas7_3 = bi->ram_start;
     tlb->mas7_3 |= MAS3_UR | MAS3_UW | MAS3_UX | MAS3_SR | MAS3_SW | MAS3_SX;
 
     env->tlb_dirty = true;
@@ -797,7 +805,7 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     char *filename;
     hwaddr bios_entry = 0;
     target_long bios_size;
-    struct boot_info *boot_info;
+    struct boot_info *boot_info = NULL;
     int dt_size;
     int i;
     /* irq num for pin INTA, INTB, INTC and INTD is 1, 2, 3 and
@@ -806,6 +814,7 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     qemu_irq **irqs, *mpic;
     DeviceState *dev;
     CPUPPCState *firstenv = NULL;
+    Error *errp = NULL;
     MemoryRegion *ccsr_addr_space;
     SysBusDevice *s;
     PPCE500CCSRState *ccsr;
@@ -817,6 +826,18 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
         } else {
             machine->cpu_model = "e500v2_v30";
         }
+    }
+
+    if (identity_map) {
+#ifdef __linux__
+        if (!mem_path) {
+            fprintf(stderr, "Identity map support only works with huge page\n");
+            exit(1);
+	}
+#else
+        fprintf(stderr,"Identity mapping not supported on this platform\n")
+	exit(1);
+#endif
     }
 
     irqs = g_malloc0(smp_cpus * sizeof(qemu_irq *));
@@ -851,7 +872,6 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
         /* Register reset handler */
         if (!i) {
             /* Primary CPU */
-            struct boot_info *boot_info;
             boot_info = g_malloc0(sizeof(struct boot_info));
             qemu_register_reset(ppce500_cpu_reset, cpu);
             env->load_info = boot_info;
@@ -868,8 +888,16 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     machine->ram_size = ram_size;
 
     /* Register Memory */
-    memory_region_allocate_system_memory(ram, NULL, "mpc8544ds.ram", ram_size);
-    memory_region_add_subregion(address_space_mem, 0, ram);
+    if (identity_map) {
+#ifdef __linux__
+        memory_region_init_identity_map_ram(ram, NULL, "mpc8544ds.ram", ram_size, mem_path, &errp);
+        vmstate_register_ram_global(ram);
+#else
+	exit(1);
+#endif
+    } else
+        memory_region_allocate_system_memory(ram, NULL, "mpc8544ds.ram", ram_size);
+    memory_region_add_subregion(address_space_mem, ram->ram_addr, ram);
 
     dev = qdev_create(NULL, "e500-ccsr");
     object_property_add_child(qdev_get_machine(), "e500-ccsr",
@@ -931,10 +959,22 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     /* Register spinning region */
     sysbus_create_simple("e500-spin", params->spin_base, NULL);
 
-    if (cur_base < (32 * 1024 * 1024)) {
+    /* Needed for "fixed" address image loading */
+    boot_info->ram_start = ram->ram_addr;
+    boot_info->ram_end = boot_info->ram_start + ram_size - 1;
+    boot_info->kernel_start = boot_info->ram_start;
+
+    /* Don't leave garbage in bi if we're not loading things */
+    boot_info->kernel_end = boot_info->ram_end;
+    if (cur_base < (32 * 1024 * 1024) && !identity_map) {
         /* u-boot occupies memory up to 32MB, so load blobs above */
         cur_base = (32 * 1024 * 1024);
-    }
+    } else if (identity_map)
+#ifdef __linux__
+	cur_base = boot_info->kernel_start + (32 * 1024 * 1024);
+#else
+	exit(1);
+#endif
 
     if (params->has_mpc8xxx_gpio) {
         qemu_irq poweroff_irq;
@@ -971,7 +1011,7 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     }
 
     /* Load kernel. */
-    if (machine->kernel_filename) {
+    if (machine->kernel_filename && !identity_map) {
         kernel_base = cur_base;
         kernel_size = load_image_targphys(machine->kernel_filename,
                                           cur_base,
@@ -999,7 +1039,6 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
 
         cur_base = initrd_base + initrd_size;
     }
-
     /*
      * Smart firmware defaults ahead!
      *
@@ -1021,6 +1060,9 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
         } else {
             bios_name = "u-boot.e500";
         }
+    } else if (bios_name && identity_map) {
+        fprintf(stderr, "bios loading not supported with identity_map\n");
+        exit(1);
     }
     filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, bios_name);
 
@@ -1031,17 +1073,23 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
          * Hrm. No ELF image? Try a uImage, maybe someone is giving us an
          * ePAPR compliant kernel
          */
-        kernel_size = load_uimage(filename, &bios_entry, &loadaddr, NULL,
-                                  NULL, NULL);
+        if (identity_map)
+            loadaddr = boot_info->kernel_start;
+
+        kernel_size = load_uimage(filename, &bios_entry, &loadaddr, NULL, NULL,
+				   NULL);
         if (kernel_size < 0) {
             fprintf(stderr, "qemu: could not load firmware '%s'\n", filename);
             exit(1);
         }
-    }
+        boot_info->kernel_end = boot_info->kernel_start + kernel_size - 1;
+    } else
+	boot_info->kernel_start = loadaddr;
+
+    boot_info->entry = bios_entry;
 
     /* Reserve space for dtb */
-    dt_base = (loadaddr + bios_size + DTC_LOAD_PAD) & ~DTC_PAD_MASK;
-
+     dt_base = (loadaddr + bios_size + DTC_LOAD_PAD) & ~DTC_PAD_MASK;
     dt_size = ppce500_prep_device_tree(machine, params, dt_base,
                                        initrd_base, initrd_size,
                                        kernel_base, kernel_size);
@@ -1051,8 +1099,6 @@ void ppce500_init(MachineState *machine, PPCE500Params *params)
     }
     assert(dt_size < DTB_MAX_SIZE);
 
-    boot_info = env->load_info;
-    boot_info->entry = bios_entry;
     boot_info->dt_base = dt_base;
     boot_info->dt_size = dt_size;
 

@@ -54,6 +54,8 @@
 
 #include <zlib.h>
 
+extern bool identity_map;
+
 bool option_rom_has_mr = false;
 bool rom_file_has_mr = true;
 
@@ -519,12 +521,16 @@ static int load_uboot_image(const char *filename, hwaddr *ep, hwaddr *loadaddr,
     /* TODO: Implement other image types.  */
     switch (hdr->ih_type) {
     case IH_TYPE_KERNEL:
-        address = hdr->ih_load;
+        if (loadaddr) {
+	  /* If identity_map is selected use the ram start */
+            if (!identity_map)
+                *loadaddr = hdr->ih_load;
+            address = *loadaddr;
+        } else
+            address = hdr->ih_load;
+
         if (translate_fn) {
             address = translate_fn(translate_opaque, address);
-        }
-        if (loadaddr) {
-            *loadaddr = hdr->ih_load;
         }
 
         switch (hdr->ih_comp) {
@@ -541,7 +547,7 @@ static int load_uboot_image(const char *filename, hwaddr *ep, hwaddr *loadaddr,
         }
 
         if (ep) {
-            *ep = hdr->ih_ep;
+            *ep = *loadaddr + hdr->ih_ep - hdr->ih_load;
         }
 
         /* TODO: Check CPU type.  */

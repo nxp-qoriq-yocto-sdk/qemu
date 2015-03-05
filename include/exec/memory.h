@@ -154,6 +154,7 @@ struct MemoryRegion {
     bool skip_dump;
     bool readonly; /* For RAM regions */
     bool enabled;
+    bool identity_map; /* 1:1 host physical mapping */
     bool rom_device;
     bool warning_printed; /* For reservations */
     bool flush_coalesced_mmio;
@@ -322,6 +323,37 @@ void memory_region_init_ram(MemoryRegion *mr,
                             Error **errp);
 
 #ifdef __linux__
+/**
+ * memory_region_is_identity_map: check whether a memory region is direct map
+ *
+ * Returns %true is a memory region is direct mapped.
+ *
+ * @mr: the memory region being queried
+ */
+static inline bool memory_region_is_identity_map(MemoryRegion *mr)
+{
+    return mr->identity_map;
+}
+
+/**
+ * memory_region_init_identity_map_ram:  Initialize direct map RAM memory region.
+ *                                     This represents 1:1 mapping wrt to host
+ *                                     physical. Access in to the region will
+ *                                     modify memory directly.
+ *
+ * @mr: the #MemoryRegion to be initialized.
+ * @owner: the object that tracks the region's reference count
+ * @name: the name of the region.
+ * @size: size of the region.
+ * @path: the path in which to allocate the RAM.
+ * @errp: pointer to Error*, to store an error if it happens.
+ */
+void memory_region_init_identity_map_ram(MemoryRegion *mr,
+                                         Object *owner,
+                                         const char *name,
+                                         uint64_t size,
+                                         const char *path,
+                                         Error **errp);
 /**
  * memory_region_init_ram_from_file:  Initialize RAM memory region with a
  *                                    mmap-ed backend.

@@ -1153,6 +1153,21 @@ void memory_region_init_ram(MemoryRegion *mr,
 }
 
 #ifdef __linux__
+void memory_region_init_identity_map_ram(MemoryRegion *mr,
+                                         Object *owner,
+                                         const char *name,
+                                         uint64_t size,
+                                         const char *path,
+                                         Error **errp)
+{
+    memory_region_init(mr, owner, name, size);
+    mr->ram = true;
+    mr->identity_map = 1;
+    mr->terminates = true;
+    mr->destructor = memory_region_destructor_ram;
+    mr->ram_addr = qemu_ram_alloc_from_file(size, mr, 0, path, errp);
+}
+
 void memory_region_init_ram_from_file(MemoryRegion *mr,
                                       struct Object *owner,
                                       const char *name,
