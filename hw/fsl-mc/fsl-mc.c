@@ -81,11 +81,10 @@ int fsl_mc_get_root_mcp_addr_range(hwaddr *mc_p_addr, hwaddr *mc_p_size)
 
 int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
                            MemoryRegion *mem, MemoryRegion *mmap_mem,
-                           char *name, uint16_t id)
+                           char *name, uint16_t id, off_t offset)
 {
     FslMcBusState *bus;
     FslMcHostState *host;
-    hwaddr offset;
     MemoryRegion *portal = NULL;
     static bool root_dprc_probed = false;
     FslMcDeviceState *tmp;
@@ -113,27 +112,27 @@ int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
         }
     }
 
+    /* Hack to calculate the device offset address */
+    offset &= 0x00FFFFFF;
+
     if (strncmp(name, "dprc", 10) == 0) {
         portal = &host->mc_portal;
-        offset = FSLMC_MC_PORTAL_SIZE * (id - 1);
 	if (offset > host->mc_portals_range_size) {
             return -EINVAL;
         }
     } else if (strncmp(name, "dpmcp", 10) == 0) {
         portal = &host->mc_portal;
-        offset = FSLMC_MC_PORTAL_SIZE * id;
 	if (offset > host->mc_portals_range_size) {
             return -EINVAL;
         }
     } else if (strncmp(name, "dpio", 10) == 0) {
         portal = &host->qbman_portal;
         if (region_num) {
-            offset = host->qbman_portals_ce_offset;
+            offset += host->qbman_portals_ce_offset;
         } else {
-            offset = host->qbman_portals_ci_offset;
+            offset += host->qbman_portals_ci_offset;
         }
 
-        offset += FSLMC_QBMAN_PORTAL_SIZE * (id - 1);
 	if (offset > host->qbman_portals_range_size) {
             return -EINVAL;
         }

@@ -246,7 +246,8 @@ static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
         vfio_map_region(vdev, i);
         ret = fsl_mc_register_device(mcdev, i, &vdev->regions[i]->mem,
                                &vdev->regions[i]->mmap_mem,
-                               vdev->name, vdev->id);
+                               vdev->name, vdev->id,
+                               vdev->regions[i]->fd_offset);
         if (ret) {
             return ret;
         }

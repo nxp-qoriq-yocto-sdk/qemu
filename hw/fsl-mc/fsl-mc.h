@@ -94,7 +94,7 @@ typedef struct FslMcDeviceClass {
 
 int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
                            MemoryRegion *mem, MemoryRegion *mmap_mem,
-                           char *name, uint16_t id);
+                           char *name, uint16_t id, off_t offset);
 int fsl_mc_get_portals_ranges(hwaddr *mc_p_addr, hwaddr *mc_p_size,
                               hwaddr *qbman_p_addr, hwaddr *qbman_p_size);
 int fsl_mc_get_root_mcp_addr_range(hwaddr *mc_p_addr, hwaddr *mc_p_size);
