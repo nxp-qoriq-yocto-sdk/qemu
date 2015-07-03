@@ -22,7 +22,6 @@
 #include "sysemu/sysemu.h"
 #include "exec/memory.h"
 #include "qemu/queue.h"
-#include "hw/sysbus.h"
 #include "sysemu/kvm.h"
 
 /* VFIO skeleton */
@@ -282,7 +281,7 @@ static void vfio_fsl_mc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     FslMcDeviceClass *mcdc = FSL_MC_DEVICE_CLASS(klass);
 
-    //dc->reset = vfio_fsl_mc_reset;
+    dc->reset = vfio_fsl_mc_reset;
     dc->props = vfio_fsl_mc_dev_properties;
     dc->vmsd = &vfio_fsl_mc_vmstate;
     dc->desc = "VFIO-based fsl_mc device assignment";
