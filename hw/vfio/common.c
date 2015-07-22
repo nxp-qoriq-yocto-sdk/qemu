@@ -333,6 +333,59 @@ out:
     rcu_read_unlock();
 }
 
+int global_fd;
+
+static int vfio_setup_msi_page(VFIOContainer *container)
+{
+        int ret;
+        unsigned long *vaddr = NULL;
+        struct vfio_iommu_type1_dma_map map = {
+                .argsz = sizeof(map),
+                .flags = VFIO_DMA_MAP_FLAG_READ |
+			  VFIO_DMA_MAP_FLAG_WRITE |
+			  VFIO_DMA_MAP_FLAG_MMIO,
+                .vaddr = 0x6030000,
+                .iova = 0x6030000,
+                .size = 0x1000,
+        };
+
+        struct vfio_iommu_type1_dma_unmap unmap = {
+                .argsz = sizeof(unmap),
+                .flags = 0,
+                .iova = 0x6030000,
+                .size = 0x1000,
+        };
+
+        vaddr = (unsigned long *) mmap(NULL, 0x1000,
+                             PROT_WRITE | PROT_READ, MAP_SHARED,
+                             global_fd, 0x6030000);
+        if (vaddr == MAP_FAILED) {
+                printf("Error mapping GITS region (errno = %d)\n", errno);
+                return -errno;
+        }
+
+
+        map.vaddr = (unsigned long)vaddr;
+
+
+        ret = ioctl(container->fd, VFIO_IOMMU_MAP_DMA, &map);
+        if (ret == 0) {
+                return 0;
+	}
+
+        if (errno == EBUSY) {
+                ret = ioctl(container->fd, VFIO_IOMMU_UNMAP_DMA, &unmap);
+                if (ret)
+                        printf("Error in vfio_dma_unmap\n");
+
+                ret = ioctl(container->fd, VFIO_IOMMU_MAP_DMA, &map);
+                if (ret == 0)
+                        return 0;
+        }
+
+        return errno;
+}
+
 static void vfio_listener_region_add(MemoryListener *listener,
                                      MemoryRegionSection *section)
 {
@@ -435,6 +488,7 @@ static void vfio_listener_region_add(MemoryListener *listener,
             hw_error("vfio: DMA mapping failed, unable to continue");
         }
     }
+
 }
 
 static void vfio_listener_region_del(MemoryListener *listener,
@@ -1105,11 +1159,14 @@ void vfio_put_group(VFIOGroup *group)
     }
 }
 
+
 int vfio_get_device(VFIOGroup *group, const char *name,
                        VFIODevice *vbasedev)
 {
     struct vfio_device_info dev_info = { .argsz = sizeof(dev_info) };
     int ret, fd;
+    static int bharat_once = 0;
+    VFIOContainer *container = group->container;
 
     fd = ioctl(group->fd, VFIO_GROUP_GET_DEVICE_FD, name);
     if (fd < 0) {
@@ -1119,6 +1176,8 @@ int vfio_get_device(VFIOGroup *group, const char *name,
                      "or pci-stub and not already in use\n", group->groupid);
         return fd;
     }
+
+    global_fd = fd;
 
     ret = ioctl(fd, VFIO_DEVICE_GET_INFO, &dev_info);
     if (ret) {
@@ -1139,6 +1198,13 @@ int vfio_get_device(VFIOGroup *group, const char *name,
                           dev_info.num_irqs);
 
     vbasedev->reset_works = !!(dev_info.flags & VFIO_DEVICE_FLAGS_RESET);
+
+
+    if (bharat_once != 10) {
+        vfio_setup_msi_page(container);
+        bharat_once = 10;
+    }
+
     return 0;
 }
 
