@@ -322,6 +322,36 @@ static int vfio_set_trigger_eventfd(VFIO_LINE_IRQ *line_irq,
     return ret;
 }
 
+static int vfio_set_kvm_irqfd(VFIOFslmcDevice *vdev, VFIO_LINE_IRQ *line_irq, int hwirq)
+{
+    struct kvm_irqfd irqfd = {
+        .fd = event_notifier_get_fd(&line_irq->interrupt),
+        .gsi = hwirq,
+        .flags = 0,
+    };
+
+    if (!kvm_irqfds_enabled()) {
+        printf("%s: irqfd not supported, kvm_irqfds_enabled = %d\n", __func__, kvm_irqfds_enabled());
+        return 0;
+    }
+
+    qemu_set_fd_handler(irqfd.fd, NULL, NULL, vdev);
+
+    vfio_mask_single_irqindex(&vdev->vbasedev, line_irq->pin);
+
+   if (kvm_vm_ioctl(kvm_state, KVM_IRQFD, &irqfd)) {
+        error_report("vfio: Error: Failed to setup resample irqfd: %m");
+        return 0;
+    }
+
+    vfio_set_trigger_eventfd(line_irq, NULL);
+
+    /* Let's resume injection with irqfd setup */
+    vfio_unmask_single_irqindex(&vdev->vbasedev, line_irq->pin);
+
+    return 0;
+}
+
 static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
 {
     VFIOFslmcDevice *vdev = DO_UPCAST(VFIOFslmcDevice, mcdev, mcdev);
@@ -366,7 +396,13 @@ static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
         QLIST_FOREACH(line_irq, &vdev->irq_list, next) {
             if (line_irq->pin == i) {
                 line_irq->hw_irq_line = mcdev->irq_map[i];
-                vfio_set_trigger_eventfd(line_irq, vfio_fsl_mc_irq_handler);
+
+                ret = vfio_set_kvm_irqfd(vdev, line_irq, mcdev->irq_map[i]);
+                if (ret) {
+                    printf("Failed to setup irqfd for device  %s.%d\n",
+                           vdev->name, vdev->id);
+                    vfio_set_trigger_eventfd(line_irq, vfio_fsl_mc_irq_handler);
+                }
             }
         }
     }
