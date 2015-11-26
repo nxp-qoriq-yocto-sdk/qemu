@@ -75,7 +75,7 @@ static int vfio_populate_device(VFIODevice *vbasedev)
     VFIOFslmcDevice *vdev =
         container_of(vbasedev, VFIOFslmcDevice, vbasedev);
 
-    if (!(vbasedev->flags & VFIO_DEVICE_FLAGS_PLATFORM)) {
+    if (!(vbasedev->flags & VFIO_DEVICE_FLAGS_FSL_MC)) {
         error_report("vfio: Um, this isn't a fsl_mc device");
         return ret;
     }
@@ -436,7 +436,11 @@ static void vfio_fsl_mc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     FslMcDeviceClass *mcdc = FSL_MC_DEVICE_CLASS(klass);
 
-    dc->reset = vfio_fsl_mc_reset;
+    /* Reset is called after _initfn() and we can not allow reset after
+     * _initfn() as interrupts are setup in _initfn() but a reset to DPRC
+     * will cleanup interrupt configuration in MC.
+     */
+//    dc->reset = vfio_fsl_mc_reset;
     dc->props = vfio_fsl_mc_dev_properties;
     dc->vmsd = &vfio_fsl_mc_vmstate;
     dc->desc = "VFIO-based fsl_mc device assignment";
