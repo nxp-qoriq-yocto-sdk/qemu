@@ -48,6 +48,8 @@
 #include "hw/arm/sysbus-fdt.h"
 #include "hw/platform-bus.h"
 #include "hw/arm/fdt.h"
+#include "hw/fsl-mc/fsl-mc.h"
+#include "hw/arm/fslmc-fdt.h"
 
 /* Number of external interrupt lines to configure the GIC with */
 #define NUM_IRQS 256
@@ -55,6 +57,7 @@
 #define PLATFORM_BUS_NUM_IRQS 64
 
 static ARMPlatformBusSystemParams platform_bus_params;
+static FSLMCBusSystemParams fsl_mc_bus_params;
 
 typedef struct VirtBoardInfo {
     struct arm_boot_info bootinfo;
@@ -117,6 +120,7 @@ static const MemMapEntry a15memmap[] = {
     [VIRT_PCIE_PIO] =           { 0x3eff0000, 0x00010000 },
     [VIRT_PCIE_ECAM] =          { 0x3f000000, 0x01000000 },
     [VIRT_MEM] =                { 0x40000000, 30ULL * 1024 * 1024 * 1024 },
+    [VIRT_FSL_MC_BUS] =     	{ 0x800000000, 0x20000000 },
 };
 
 static const int a15irqmap[] = {
@@ -772,6 +776,36 @@ static void create_platform_bus(VirtBoardInfo *vbi, qemu_irq *pic)
                                 sysbus_mmio_get_region(s, 0));
 }
 
+static void create_fsl_mc(const VirtBoardInfo *vbi, qemu_irq *pic)
+{
+    hwaddr base = vbi->memmap[VIRT_FSL_MC_BUS].base;
+    DeviceState *mcdev;
+    SysBusDevice *mcsdev;
+    FSLMCBusFDTParams *fdt_params = g_new(FSLMCBusFDTParams, 1);
+
+    mcdev = qdev_create(NULL, "fsl-mc-host");
+    mcdev->id = TYPE_FSL_MC_HOST;
+    qdev_prop_set_uint64(mcdev, "mc_bus_base_addr", base);
+    qdev_prop_set_uint64(mcdev, "mc_portals_range_offset", 0x0);
+    qdev_prop_set_uint64(mcdev, "mc_portals_range_size",
+                         FSLMC_MC_PORTALS_RANGE_SIZE);
+    qdev_prop_set_uint64(mcdev, "qbman_portals_range_offset",
+                         FSLMC_MC_PORTALS_RANGE_SIZE);
+    qdev_prop_set_uint64(mcdev, "qbman_portals_range_size",
+                         FSLMC_QBMAN_PORTALS_RANGE_SIZE);
+    qdev_init_nofail(mcdev);
+    mcsdev = SYS_BUS_DEVICE(mcdev);
+    sysbus_mmio_map(mcsdev, 0, base);
+    sysbus_mmio_map(mcsdev, 1, base + FSLMC_MC_PORTALS_RANGE_SIZE);
+
+    fsl_mc_bus_params.fslmc_bus_base = base;
+    fsl_mc_bus_params.fslmc_bus_size = FSLMC_MC_PORTALS_RANGE_SIZE;
+    fdt_params->system_params = &fsl_mc_bus_params;
+    fdt_params->binfo = &vbi->bootinfo;
+    fdt_params->intc = "/intc";
+    fsl_register_mc_bus_fdt_creator(fdt_params);
+}
+
 static void *machvirt_dtb(const struct arm_boot_info *binfo, int *fdt_size)
 {
     const VirtBoardInfo *board = (const VirtBoardInfo *)binfo;
@@ -909,6 +943,9 @@ static void machvirt_init(MachineState *machine)
     vbi->bootinfo.get_dtb = machvirt_dtb;
     vbi->bootinfo.firmware_loaded = bios_name || drive_get(IF_PFLASH, 0, 0);
     arm_load_kernel(ARM_CPU(first_cpu), &vbi->bootinfo);
+
+    /* Create FSL-MC Bus device */
+    create_fsl_mc(vbi, pic);
 
     /*
      * arm_load_kernel machine init done notifier registration must
