@@ -18,6 +18,7 @@
 
 static Property fsl_mc_props[] = {
     DEFINE_PROP_UINT64("mc_bus_base_addr", FslMcHostState, mc_bus_base_addr, 0),
+    DEFINE_PROP_UINT32("mc_bus_num_irqs", FslMcHostState, mc_bus_num_irqs, 0),
     DEFINE_PROP_UINT64("mc_portals_range_offset", FslMcHostState,
                        mc_portals_range_offset, 0),
     DEFINE_PROP_UINT64("mc_portals_range_size", FslMcHostState,
@@ -37,6 +38,10 @@ int fsl_mc_get_portals_ranges(hwaddr *mc_p_addr, hwaddr *mc_p_size,
 
     dev = qdev_find_recursive(sysbus_get_default(), TYPE_FSL_MC_HOST);
     host = FSL_MC_HOST(dev);
+    if (host == NULL) {
+        fprintf(stderr, "No FSL-MC Host bridge found\n");
+        return -ENODEV;
+    }
 
     *mc_p_addr = host->mc_bus_base_addr +  host->mc_portals_range_offset;
     *mc_p_size = host->mc_portals_range_size;
@@ -158,6 +163,97 @@ int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
     return 0;
 }
 
+int fsl_mc_connect_irq(FslMcDeviceState *mcdev, int irq_num,
+                       char *name, uint16_t id)
+{
+    DeviceState *dev;
+    FslMcBusState *bus;
+    FslMcHostState *host;
+    SysBusDevice *d = NULL;
+    int max_irqs;
+    int irq_index;
+
+    bus = mcdev->bus;
+    if (bus == NULL) {
+        fprintf(stderr, "No FSL-MC Bus found\n");
+        return -ENODEV;
+    }
+
+    host = FSL_MC_HOST(bus->qbus.parent);
+    if (host == NULL) {
+        fprintf(stderr, "No FSL-MC Host bridge found\n");
+        return -ENODEV;
+    }
+
+    dev = qdev_find_recursive(sysbus_get_default(), TYPE_FSL_MC_HOST);
+    d = SYS_BUS_DEVICE(dev);
+    if (d == NULL) {
+        fprintf(stderr, "sysbus device not found\n");
+        return -ENODEV;
+    }
+
+    /* Get mapped device irq */
+    irq_index = mcdev->irq_map[irq_num];
+    if ((irq_index != 0) && test_bit(irq_index, host->used_irqs)) {
+        /* IRQ is already mapped, nothing to do */
+        fprintf(stderr, "sysbus irq already mapped\n");
+        return 0;
+    }
+
+    max_irqs = host->mc_bus_num_irqs;
+    irq_index = find_first_zero_bit(host->used_irqs, max_irqs);
+    if (irq_index >= max_irqs) {
+        hw_error("Platform Bus: Can not fit IRQ line");
+        return -ENODEV;
+    }
+
+    set_bit(irq_index, host->used_irqs);
+    /* Map device IRQ-Num to allocated irq index */
+    mcdev->irq_map[irq_num] = 176 + irq_index;
+
+    return 0;
+}
+
+int fsl_mc_assert_irq(FslMcDeviceState *mcdev, int irq_num)
+{
+    DeviceState *dev;
+    SysBusDevice *d = NULL;
+    FslMcBusState *bus;
+    FslMcHostState *host;
+    int irq_index;
+
+    bus = mcdev->bus;
+    if (bus == NULL) {
+        fprintf(stderr, "No FSL-MC Bus found\n");
+        return -ENODEV;
+    }
+
+    host = FSL_MC_HOST(bus->qbus.parent);
+    if (host == NULL) {
+        fprintf(stderr, "No FSL-MC Host bridge found\n");
+        return -ENODEV;
+    }
+
+    dev = qdev_find_recursive(sysbus_get_default(), TYPE_FSL_MC_HOST);
+    d = SYS_BUS_DEVICE(dev);
+    if (d == NULL) {
+        fprintf(stderr, "sysbus device not found\n");
+        return -ENODEV;
+    }
+
+    /* Get mapped device irq */
+    irq_index = mcdev->irq_map[irq_num];
+    irq_index -= 176;
+
+    if (!(test_bit(irq_index, host->used_irqs)) ||
+        !sysbus_is_irq_connected(d, irq_index)) {
+        return -ENODEV;
+    }
+
+    qemu_set_irq(host->irqs[irq_index], 1);
+    return 0;
+}
+
 static int fsl_mc_qdev_init(DeviceState *qdev)
 {
     FslMcDeviceState *mcdev = (FslMcDeviceState *)qdev;
@@ -233,7 +329,6 @@ static void fsl_mc_portal_write(void *opaque, hwaddr addr,
                                 uint64_t value, unsigned size)
 {
     fprintf(stderr, "%s: Addr = %lx, Size = %d\n", __func__, addr, size);
-    fprintf(stderr, "%s \n", __func__);
 }
 
 static const MemoryRegionOps fsl_mc_portal_ops = {
@@ -259,6 +354,7 @@ static void fsl_mc_host_realize(DeviceState *dev, Error **errp)
 {
     FslMcHostState *s = FSL_MC_HOST(dev);
     SysBusDevice *d = SYS_BUS_DEVICE(dev);
+    int i;
 
     if (s == NULL) {
         fprintf(stderr, "No FSL-MC Host bridge found\n");
@@ -275,6 +371,12 @@ static void fsl_mc_host_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->qbman_portal, OBJECT(s), NULL, s,
                           "fsl_qbman portal", s->qbman_portals_range_size);
     sysbus_init_mmio(d, &s->qbman_portal);
+
+    s->used_irqs = bitmap_new(s->mc_bus_num_irqs);
+    s->irqs = g_new0(qemu_irq, s->mc_bus_num_irqs);
+    for (i = 0; i < s->mc_bus_num_irqs; i++) {
+        sysbus_init_irq(d, &s->irqs[i]);
+    }
 }
 
 static void fsl_mc_host_class_init(ObjectClass *klass, void *data)

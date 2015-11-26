@@ -56,6 +56,8 @@
 
 #define PLATFORM_BUS_NUM_IRQS 64
 
+#define FSL_MC_BUS_NUM_IRQS 64
+
 static ARMPlatformBusSystemParams platform_bus_params;
 static FSLMCBusSystemParams fsl_mc_bus_params;
 
@@ -130,6 +132,7 @@ static const int a15irqmap[] = {
     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
     [VIRT_PLATFORM_BUS] = 112, /* ...to 112 + PLATFORM_BUS_NUM_IRQS -1 */
+    [VIRT_FSL_MC_BUS] = 176, /* ...to 176 + FSL_MC_BUS_NUM_IRQS - 1*/
 };
 
 static VirtBoardInfo machines[] = {
@@ -782,10 +785,12 @@ static void create_fsl_mc(const VirtBoardInfo *vbi, qemu_irq *pic)
     DeviceState *mcdev;
     SysBusDevice *mcsdev;
     FSLMCBusFDTParams *fdt_params = g_new(FSLMCBusFDTParams, 1);
+    int i;
 
     mcdev = qdev_create(NULL, "fsl-mc-host");
     mcdev->id = TYPE_FSL_MC_HOST;
     qdev_prop_set_uint64(mcdev, "mc_bus_base_addr", base);
+    qdev_prop_set_uint64(mcdev, "mc_bus_num_irqs", FSL_MC_BUS_NUM_IRQS);
     qdev_prop_set_uint64(mcdev, "mc_portals_range_offset", 0x0);
     qdev_prop_set_uint64(mcdev, "mc_portals_range_size",
                          FSLMC_MC_PORTALS_RANGE_SIZE);
@@ -800,10 +805,18 @@ static void create_fsl_mc(const VirtBoardInfo *vbi, qemu_irq *pic)
 
     fsl_mc_bus_params.fslmc_bus_base = base;
     fsl_mc_bus_params.fslmc_bus_size = FSLMC_MC_PORTALS_RANGE_SIZE;
+    fsl_mc_bus_params.fslmc_bus_first_irq = vbi->irqmap[VIRT_FSL_MC_BUS];
+    fsl_mc_bus_params.fslmc_bus_num_irqs = FSL_MC_BUS_NUM_IRQS;
+
     fdt_params->system_params = &fsl_mc_bus_params;
     fdt_params->binfo = &vbi->bootinfo;
     fdt_params->intc = "/intc";
     fsl_register_mc_bus_fdt_creator(fdt_params);
+
+    for (i = 0; i < fsl_mc_bus_params.fslmc_bus_num_irqs; i++) {
+        int irqn = fsl_mc_bus_params.fslmc_bus_first_irq + i;
+        sysbus_connect_irq(mcsdev, i, pic[irqn]);
+    }
 }
 
 static void *machvirt_dtb(const struct arm_boot_info *binfo, int *fdt_size)

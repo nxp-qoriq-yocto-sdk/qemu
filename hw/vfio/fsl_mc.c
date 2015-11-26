@@ -38,6 +38,30 @@ static int vfio_fsl_mc_hot_reset_multi(VFIODevice *vbasedev)
     return 0;
 }
 
+static VFIO_LINE_IRQ *vfio_init_line_irq(VFIODevice *vbasedev,
+                                         struct vfio_irq_info info)
+{
+    int ret;
+    VFIO_LINE_IRQ *line_irq;
+    VFIOFslmcDevice *vdev =
+        container_of(vbasedev, VFIOFslmcDevice, vbasedev);
+
+    line_irq = g_malloc0(sizeof(*line_irq));
+    line_irq->vdev = vdev;
+    line_irq->pin = info.index;
+    line_irq->flags = info.flags;
+
+    ret = event_notifier_init(&line_irq->interrupt, 0);
+    if (ret) {
+        g_free(line_irq);
+        error_report("vfio: Error: trigger event_notifier_init failed ");
+        return NULL;
+    }
+
+    QLIST_INSERT_HEAD(&vdev->irq_list, line_irq, next);
+    return line_irq;
+}
+
 /**
  * vfio_populate_device - Allocate and populate MMIO region
  * and IRQ structs according to driver returned information
@@ -47,6 +71,7 @@ static int vfio_fsl_mc_hot_reset_multi(VFIODevice *vbasedev)
 static int vfio_populate_device(VFIODevice *vbasedev)
 {
     int i, ret = -1;
+    VFIO_LINE_IRQ *line_irq, *tmp;
     VFIOFslmcDevice *vdev =
         container_of(vbasedev, VFIOFslmcDevice, vbasedev);
 
@@ -77,7 +102,31 @@ static int vfio_populate_device(VFIODevice *vbasedev)
         ptr->vbasedev = vbasedev;
     }
 
+    for (i = 0; i < vbasedev->num_irqs; i++) {
+        struct vfio_irq_info irq = { .argsz = sizeof(irq) };
+
+        irq.index = i;
+        ret = ioctl(vbasedev->fd, VFIO_DEVICE_GET_IRQ_INFO, &irq);
+        if (ret) {
+            error_printf("vfio: error getting device %s irq info",
+                         vbasedev->name);
+            goto irq_err;
+        }
+
+        line_irq = vfio_init_line_irq(vbasedev, irq);
+        if (!line_irq) {
+            error_report("vfio: Error installing IRQ %d up", i);
+            goto irq_err;
+        }
+    }
+
     return 0;
+irq_err:
+    QLIST_FOREACH_SAFE(line_irq, &vdev->irq_list, next, tmp) {
+        QLIST_REMOVE(line_irq, next);
+        g_free(line_irq);
+    }
+
 reg_error:
     for (i = 0; i < vbasedev->num_regions; i++) {
         g_free(vdev->regions[i]);
@@ -155,6 +204,7 @@ static int vfio_base_device_init(VFIODevice *vbasedev)
             return -EBUSY;
         }
     }
+
     ret = vfio_get_device(group, path, vbasedev);
     if (ret) {
         error_report("vfio: failed to get device %s", path);
@@ -220,10 +270,63 @@ static void vfio_fsl_mc_reset(DeviceState *dev)
      }
 }
 
+static void vfio_fsl_mc_irq_handler(VFIO_LINE_IRQ *line_irq)
+{
+    int ret;
+    VFIOFslmcDevice *vdev = line_irq->vdev;
+
+    ret = event_notifier_test_and_clear(&line_irq->interrupt);
+    if (!ret) {
+        error_report("Error when clearing fd=%d (ret = %d)\n",
+                     event_notifier_get_fd(&line_irq->interrupt), ret);
+    }
+
+    /* trigger the virtual IRQ */
+    fsl_mc_assert_irq(&vdev->mcdev, line_irq->pin);
+}
+
+/**
+ * vfio_set_trigger_eventfd - set VFIO eventfd handling
+ *
+ * Setup VFIO signaling and attach an optional user-side handler
+ * to the eventfd
+ */
+static int vfio_set_trigger_eventfd(VFIO_LINE_IRQ *line_irq,
+                                    eventfd_user_side_handler_t handler)
+{
+    VFIODevice *vbasedev = &line_irq->vdev->vbasedev;
+    struct vfio_irq_set *irq_set;
+    int argsz, ret;
+    int32_t *pfd;
+
+    argsz = sizeof(*irq_set) + sizeof(*pfd);
+    irq_set = g_malloc0(argsz);
+    irq_set->argsz = argsz;
+    irq_set->flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
+    irq_set->index = line_irq->pin;
+    irq_set->start = 0;
+    irq_set->count = 1;
+    irq_set->user_irq_id = line_irq->hw_irq_line;
+    pfd = (int32_t *)&irq_set->data;
+
+    *pfd = event_notifier_get_fd(&line_irq->interrupt);
+
+    qemu_set_fd_handler(*pfd, (IOHandler *)handler, NULL, line_irq);
+
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_SET_IRQS, irq_set);
+    g_free(irq_set);
+    if (ret < 0) {
+        error_report("vfio: Failed to set trigger eventfd: %m");
+        qemu_set_fd_handler(*pfd, NULL, NULL, NULL);
+    }
+    return ret;
+}
+
 static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
 {
     VFIOFslmcDevice *vdev = DO_UPCAST(VFIOFslmcDevice, mcdev, mcdev);
     VFIODevice *vbasedev = &vdev->vbasedev;
+    VFIO_LINE_IRQ *line_irq;
     int i, ret;
     char *temp;
 
@@ -249,6 +352,22 @@ static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
                                vdev->regions[i]->fd_offset);
         if (ret) {
             return ret;
+        }
+    }
+
+    for (i = 0; i < vbasedev->num_irqs; i++) {
+        ret = fsl_mc_connect_irq(mcdev, i, vdev->name, vdev->id);
+        if (ret) {
+            printf("Failed to connect irq for device %s.%d\n",
+                   vdev->name, vdev->id);
+            return ret;
+        }
+
+        QLIST_FOREACH(line_irq, &vdev->irq_list, next) {
+            if (line_irq->pin == i) {
+                line_irq->hw_irq_line = mcdev->irq_map[i];
+                vfio_set_trigger_eventfd(line_irq, vfio_fsl_mc_irq_handler);
+            }
         }
     }
 

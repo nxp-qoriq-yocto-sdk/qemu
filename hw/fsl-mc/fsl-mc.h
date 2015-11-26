@@ -46,17 +46,22 @@ typedef struct FslMcBusState FslMcBusState;
 typedef struct FslMcHostState {
     /*< private >*/
     SysBusDevice parent_obj;
+
     /*< public >*/
     FslMcBusState bus;
     MemoryRegion mc_portal;
     MemoryRegion qbman_portal;
     uint64_t mc_bus_base_addr;
+    uint32_t mc_bus_num_irqs;
     uint64_t mc_portals_range_offset;
     uint64_t mc_portals_range_size;
     uint64_t qbman_portals_range_offset;
     uint64_t qbman_portals_range_size;
     uint64_t qbman_portals_ce_offset;
     uint64_t qbman_portals_ci_offset;
+
+    qemu_irq *irqs;
+    unsigned long *used_irqs;
 } FslMcHostState;
 
 typedef struct FslMcHostClass {
@@ -74,11 +79,13 @@ typedef struct FslMcHostClass {
 typedef struct FslMcDeviceState {
     /*< private >*/
     DeviceState parent_obj;
+
     /*< public >*/
     DeviceState qdev;
     FslMcBusState *bus;
     bool root_dprc;
     uint16_t dprc_id;
+    uint8_t irq_map[60]; /* Assume no more than 10 is per device */
     QLIST_ENTRY(FslMcDeviceState) next;
 } FslMcDeviceState;
 
@@ -98,4 +105,9 @@ int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
 int fsl_mc_get_portals_ranges(hwaddr *mc_p_addr, hwaddr *mc_p_size,
                               hwaddr *qbman_p_addr, hwaddr *qbman_p_size);
 int fsl_mc_get_root_mcp_addr_range(hwaddr *mc_p_addr, hwaddr *mc_p_size);
+int fsl_mc_connect_irq(FslMcDeviceState *mcdev, int irq_num,
+                       char *name, uint16_t id);
+int fsl_mc_bus_get_irq_num(int irq_index);
+int fsl_mc_assert_irq(FslMcDeviceState *mcdev, int irq_num);
+
 #endif /* !defined(FSL_MC_FSL_MC_H) */

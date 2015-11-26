@@ -20,10 +20,22 @@
 
 #define TYPE_VFIO_FSL_MC "vfio-fsl-mc"
 
+typedef struct VFIO_LINE_IRQ {
+    QLIST_ENTRY(VFIO_LINE_IRQ) next; /* entry for IRQ list */
+    EventNotifier interrupt; /* eventfd triggered on interrupt */
+    uint32_t hw_irq_line; /* IRQ number allocated from mc bus */
+    uint8_t pin; /* index */
+    struct VFIOFslmcDevice *vdev; /* back pointer to device */
+    uint32_t flags; /* IRQ info flags */
+} VFIO_LINE_IRQ;
+
+typedef void (*eventfd_user_side_handler_t)(VFIO_LINE_IRQ *line_irq);
+
 typedef struct VFIOFslmcDevice {
     FslMcDeviceState mcdev;
     VFIODevice vbasedev; /* not a QOM object */
     VFIORegion **regions;
+    QLIST_HEAD(, VFIO_LINE_IRQ) irq_list; /* list of IRQs */
     char name[10];
     uint16_t id;
     int32_t bootindex;

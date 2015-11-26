@@ -64,6 +64,9 @@ static void add_fsl_mc_bus_fdt_node(FSLMCBusFDTParams *fdt_params)
     struct arm_boot_info *info = fdt_params->binfo;
     const FSLMCBusSystemParams *params = fdt_params->system_params;
     void *fdt = info->get_dtb(info, &dtb_size);
+    uint32_t *irq_attr;
+    int irq_num, i;
+    int ret;
 
     /*
      * If the user provided a dtb, we assume the dynamic sysbus nodes
@@ -76,8 +79,17 @@ static void add_fsl_mc_bus_fdt_node(FSLMCBusFDTParams *fdt_params)
         return;
     }
 
-    fsl_mc_get_portals_ranges(&mc_p_addr, &mc_p_size, &qbman_p_addr, &qbman_p_size);
+    fsl_mc_get_portals_ranges(&mc_p_addr, &mc_p_size,
+                              &qbman_p_addr, &qbman_p_size);
     fsl_mc_get_root_mcp_addr_range(&mcaddr, &mcsize);
+
+    irq_attr = g_new(uint32_t, 64 * 3);
+    for (i = 0; i < 64; i++) {
+        irq_num = params->fslmc_bus_first_irq + i;
+        irq_attr[3 * i] = cpu_to_be32(0);
+        irq_attr[3 * i + 1] = cpu_to_be32(irq_num);
+        irq_attr[3 * i + 2] = cpu_to_be32(1);
+    }
 
     assert(fdt);
 
@@ -89,14 +101,17 @@ static void add_fsl_mc_bus_fdt_node(FSLMCBusFDTParams *fdt_params)
     qemu_fdt_setprop_cells(fdt, node, "#size-cells", 1);
     qemu_fdt_setprop_cells(fdt, node, "#address-cells", 3);
     qemu_fdt_setprop_cells(fdt, node, "ranges", 0x0, 0x0, 0x0,
-                                                     mc_p_addr >> 32,
-                                                     mc_p_addr, mc_p_size,
-                                                0x1, 0x0, 0x0,
-                                                     qbman_p_addr >> 32,
-                                                     qbman_p_addr,
-                                                     qbman_p_size);
+                           mc_p_addr >> 32, mc_p_addr, mc_p_size,
+                           0x1, 0x0, 0x0, qbman_p_addr >> 32,
+                           qbman_p_addr, qbman_p_size);
     qemu_fdt_setprop_cells(fdt, node, "reg", mcaddr >> 32, mcaddr,
-                                             mcsize >> 32, mcsize);
+                           mcsize >> 32, mcsize);
+    ret = qemu_fdt_setprop(fdt, node, "interrupts",
+                           irq_attr, 64*3*sizeof(uint32_t));
+    if (ret) {
+        error_report("could not set interrupts property of node %s", node);
+    }
+    g_free(irq_attr);
     g_free(node);
 }
 

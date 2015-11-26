@@ -33,6 +33,8 @@
 typedef struct {
     hwaddr fslmc_bus_base; /* start address of the bus */
     hwaddr fslmc_bus_size; /* size of the bus */
+    int fslmc_bus_first_irq; /* first hwirq assigned to the bus */
+    int fslmc_bus_num_irqs; /* number of hwirq assigned to the bus */
 } FSLMCBusSystemParams;
 
 /*
