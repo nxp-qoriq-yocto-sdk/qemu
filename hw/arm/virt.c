@@ -122,7 +122,7 @@ static const MemMapEntry a15memmap[] = {
     [VIRT_PCIE_PIO] =           { 0x3eff0000, 0x00010000 },
     [VIRT_PCIE_ECAM] =          { 0x3f000000, 0x01000000 },
     [VIRT_MEM] =                { 0x40000000, 30ULL * 1024 * 1024 * 1024 },
-    [VIRT_FSL_MC_BUS] =     	{ 0x800000000, 0x20000000 },
+    [VIRT_FSL_MC_BUS] =     	{ 0x80c000000, 0x20000000 },
 };
 
 static const int a15irqmap[] = {
@@ -799,13 +799,13 @@ static void create_fsl_mc(const VirtBoardInfo *vbi, qemu_irq *pic)
     qdev_prop_set_uint64(mcdev, "mc_portals_range_size",
                          FSLMC_MC_PORTALS_RANGE_SIZE);
     qdev_prop_set_uint64(mcdev, "qbman_portals_range_offset",
-                         FSLMC_MC_PORTALS_RANGE_SIZE);
+                         FSLMC_QBMAN_PORTALS_RANGE_BASE);
     qdev_prop_set_uint64(mcdev, "qbman_portals_range_size",
                          FSLMC_QBMAN_PORTALS_RANGE_SIZE);
     qdev_init_nofail(mcdev);
     mcsdev = SYS_BUS_DEVICE(mcdev);
     sysbus_mmio_map(mcsdev, 0, base);
-    sysbus_mmio_map(mcsdev, 1, base + FSLMC_MC_PORTALS_RANGE_SIZE);
+    sysbus_mmio_map(mcsdev, 1, base + FSLMC_QBMAN_PORTALS_RANGE_BASE);
 
     fsl_mc_bus_params.fslmc_bus_base = base;
     fsl_mc_bus_params.fslmc_bus_size = FSLMC_MC_PORTALS_RANGE_SIZE;

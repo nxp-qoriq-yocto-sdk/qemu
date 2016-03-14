@@ -24,6 +24,7 @@
 /* Size of each MC Portal */
 #define FSLMC_MC_PORTAL_SIZE 0x10000
 /* Range within all QBMAN portals fit in */
+#define FSLMC_QBMAN_PORTALS_RANGE_BASE	0xC000000
 #define FSLMC_QBMAN_PORTALS_RANGE_SIZE 0x8000000
 /* Size of each QBMAN Portal */
 #define FSLMC_QBMAN_PORTAL_SIZE 0x10000
