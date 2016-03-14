@@ -29,6 +29,7 @@
 #include "hw/fsl-mc/fsl-mc.h"
 #include "hw/vfio/vfio-fsl-mc.h"
 #include "hw/arm/fslmc-fdt.h"
+#include "hw/vfio/vfio-smmu.h"
 
 /*
  * internal struct that contains the information to create dynamic
@@ -36,6 +37,8 @@
  */
 typedef struct FslmcBusFDTData {
     void *fdt; /* device tree handle */
+    const char *fslmc_bus_node_name; /* name of the platform bus node */
+    uint32_t phandle;
 } FslmcBusFDTData;
 
 /*
@@ -48,6 +51,26 @@ typedef struct FSLMCBusFDTNotifierParams {
 } FSLMCBusFDTNotifierParams;
 
 /* Device Specific Code */
+static int add_smmu_master(FslmcBusFDTData *data)
+{
+    int master[3];
+    char *smmu_nodename;
+    void *fdt = data->fdt;
+    const char *parent_node = data->fslmc_bus_node_name;
+//    VFIOPlatformDevice *vdev = VFIO_PLATFORM_DEVICE(sbdev);
+//    VFIODevice *vbasedev = &vdev->vbasedev;
+
+    smmu_nodename = g_strdup_printf("/smmu@%" PRIx64, vsmmu->base);
+    master[0] = cpu_to_be32(qemu_fdt_get_phandle(fdt, parent_node));
+//    master[1] = cpu_to_be32(vbasedev->group->groupid);
+    master[1] = 300;
+    master[2] = 0;
+
+    qemu_fdt_setprop(fdt, smmu_nodename, "mmu-masters",
+                master, 3*sizeof(int));
+
+    return 0;
+}
 
 /**
  * add_fsl_mc_bus_fdt_node - create all fsl mc bus node
@@ -60,11 +83,13 @@ static void add_fsl_mc_bus_fdt_node(FSLMCBusFDTParams *fdt_params)
     gchar *node;
     hwaddr mc_p_addr, mc_p_size, qbman_p_addr, qbman_p_size;
     hwaddr mcaddr, mcsize;
+    FslmcBusFDTData data;
     int dtb_size;
     struct arm_boot_info *info = fdt_params->binfo;
     const FSLMCBusSystemParams *params = fdt_params->system_params;
     void *fdt = info->get_dtb(info, &dtb_size);
     uint32_t *irq_attr;
+    uint32_t phandle;
     int irq_num, i;
     int ret;
 
@@ -111,6 +136,20 @@ static void add_fsl_mc_bus_fdt_node(FSLMCBusFDTParams *fdt_params)
     if (ret) {
         error_report("could not set interrupts property of node %s", node);
     }
+
+    phandle = qemu_fdt_alloc_phandle(fdt);
+    qemu_fdt_setprop_cell(fdt, node, "phandle", phandle);
+    qemu_fdt_setprop_cell(fdt, node, "#stream-id-cells", 2);
+
+    data.fdt = fdt;
+    data.fslmc_bus_node_name = node;
+    data.phandle = phandle;
+    if (vsmmu) {
+        add_smmu_master(&data);
+    } else {
+        error_report("vSMMU device not initialized\n");
+    }
+
     g_free(irq_attr);
     g_free(node);
 }

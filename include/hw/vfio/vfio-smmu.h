@@ -27,6 +27,8 @@ typedef struct VFIOSmmuDevice {
     uint32_t group;
 } VFIOSmmuDevice;
 
+extern VFIOSmmuDevice *vsmmu;
+
 typedef struct SmmuNotifierParams {
     Notifier notifier;
     VFIOSmmuDevice *vsmmu;
