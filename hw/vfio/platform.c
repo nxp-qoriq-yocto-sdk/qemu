@@ -683,6 +683,7 @@ static Property vfio_platform_dev_properties[] = {
     DEFINE_PROP_UINT32("mmap-timeout-ms", VFIOPlatformDevice,
                        mmap_timeout, 1100),
     DEFINE_PROP_BOOL("x-irqfd", VFIOPlatformDevice, irqfd_allowed, true),
+    DEFINE_PROP_BOOL("x-iommu", VFIOPlatformDevice, iommu_master, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

@@ -100,6 +100,38 @@ static int add_arm_smmu_fdt_node(SysBusDevice *sbdev, void *opaque)
 
 /* Device Specific Code */
 
+static int add_smmu_master(SysBusDevice *sbdev, void *opaque)
+{
+    if (object_dynamic_cast(OBJECT(sbdev), TYPE_VFIO_PLATFORM) &&
+	    VFIO_PLATFORM_DEVICE(sbdev)->iommu_master) {
+        int master[2];
+        char *smmu_nodename, *master_nodename;
+        uint64_t mmio_base;
+        PlatformBusFDTData *data = opaque;
+        PlatformBusDevice *pbus = data->pbus;
+        void *fdt = data->fdt;
+        VFIOPlatformDevice *vdev = VFIO_PLATFORM_DEVICE(sbdev);
+        VFIODevice *vbasedev = &vdev->vbasedev;
+        const char *parent_node = data->pbus_node_name;
+
+        smmu_nodename = g_strdup_printf("/smmu@%" PRIx64, vsmmu->base);
+        mmio_base = platform_bus_get_mmio_addr(pbus, sbdev, 0);
+
+        master_nodename = g_strdup_printf("%s/%s@%" PRIx64, parent_node,
+                vbasedev->name,
+                mmio_base);
+
+        master[0] = cpu_to_be32(qemu_fdt_get_phandle(fdt, master_nodename));
+        master[1] = cpu_to_be32(vbasedev->group->groupid);
+
+        qemu_fdt_setprop(fdt, smmu_nodename, "mmu-masters",
+                master, 2*sizeof(int));
+
+    }
+
+    return 0;
+}
+
 /**
  * add_calxeda_midway_xgmac_fdt_node
  *
@@ -266,6 +298,9 @@ static void add_all_platform_bus_fdt_nodes(ARMPlatformBusFDTParams *fdt_params)
 
     /* Loop through all dynamic sysbus devices and create their node */
     foreach_dynamic_sysbus_device(add_fdt_node, &data);
+    if (vsmmu) {
+        foreach_dynamic_sysbus_device(add_smmu_master, &data);
+    }
 
     g_free(node);
 }
