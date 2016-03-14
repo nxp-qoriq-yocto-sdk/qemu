@@ -306,7 +306,7 @@ static int vfio_set_trigger_eventfd(VFIO_LINE_IRQ *line_irq,
     irq_set->index = line_irq->pin;
     irq_set->start = 0;
     irq_set->count = 1;
-    irq_set->user_irq_id = line_irq->hw_irq_line;
+    irq_set->irq_num = line_irq->hw_irq_line;
     pfd = (int32_t *)&irq_set->data;
 
     *pfd = event_notifier_get_fd(&line_irq->interrupt);
