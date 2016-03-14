@@ -14,7 +14,9 @@
 
 #include <linux/vfio.h>
 #include <sys/ioctl.h>
-
+#include <sys/types.h>
+#include <dirent.h>
+#include <strings.h>
 #include "hw/fsl-mc/fsl-mc.h"
 #include "hw/vfio/vfio-fsl-mc.h"
 #include "qemu/error-report.h"
@@ -352,6 +354,80 @@ static int vfio_set_kvm_irqfd(VFIOFslmcDevice *vdev, VFIO_LINE_IRQ *line_irq, in
     return 0;
 }
 
+static bool vfio_fslmc_is_mcdev(const char* mcdev_name)
+{
+    const char *mcdev_type;
+    int type_array_size, i, len;
+    const char *fsl_mcdev_types[] = {
+       "dprc",
+       "dpbp",
+       "dpmcp",
+       "dpcon",
+       "dpio",
+       "dpni",
+    };
+
+    type_array_size = sizeof(fsl_mcdev_types) / sizeof(fsl_mcdev_types[0]);
+
+    for(i=0; i < type_array_size; i++) {
+        mcdev_type = fsl_mcdev_types[i];
+        len = strnlen(mcdev_type, FSLMC_DEV_NAME_LEN);
+        if (!memcmp(mcdev_type, mcdev_name, len)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void vfio_fsl_mc_create_qdev(FslMcDeviceState *parent_mcdev,
+                                    const char *mcdev_name)
+{
+    DeviceState *vfio_mcdev;
+    BusState *parent_bus = &parent_mcdev->bus->qbus;
+
+    vfio_mcdev = qdev_create(parent_bus, "vfio-fsl-mc");
+    vfio_mcdev->id = TYPE_VFIO_FSL_MC;
+    qdev_prop_set_string(vfio_mcdev, "host", mcdev_name);
+    qdev_init_nofail(vfio_mcdev);
+}
+
+static void vfio_fsl_mc_scan_dprc(FslMcDeviceState *mcdev)
+{
+    VFIOFslmcDevice *vdev = DO_UPCAST(VFIOFslmcDevice, mcdev, mcdev);
+    VFIODevice *vbasedev = &vdev->vbasedev;
+    char dev_syspath[FSLMC_DEV_SYSPATH_LEN];
+    DIR *dir;
+    struct dirent *entry;
+    int len;
+
+    if (strncmp(vdev->name, "dprc", 10)) {
+        goto out;
+    }
+
+    memset(&dev_syspath[0], 0, FSLMC_DEV_SYSPATH_LEN);
+    strncpy(dev_syspath, FSLMC_HOST_SYSFS_PATH, FSLMC_DEV_SYSPATH_LEN);
+    len = strlen(dev_syspath);
+    strncat(dev_syspath, vbasedev->name, (FSLMC_DEV_SYSPATH_LEN - len));
+    dir = opendir(dev_syspath);
+    if (!dir) {
+        error_report("vfio-fslmc: Failed to open directory: %s\n", dev_syspath);
+        goto out;
+    }
+
+    while ((entry = readdir(dir))) {
+        if (!vfio_fslmc_is_mcdev(entry->d_name)) {
+            continue;
+        }
+
+        vfio_fsl_mc_create_qdev(mcdev, entry->d_name);
+    }
+
+    closedir(dir);
+out:
+    return;
+}
+
 static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
 {
     VFIOFslmcDevice *vdev = DO_UPCAST(VFIOFslmcDevice, mcdev, mcdev);
@@ -407,6 +483,7 @@ static int vfio_fsl_mc_initfn(FslMcDeviceState *mcdev)
         }
     }
 
+    vfio_fsl_mc_scan_dprc(mcdev);
     return 0;
 }
 
@@ -414,7 +491,6 @@ static void vfio_fsl_mc_instance_init(Object *obj)
 {
     FslMcDeviceState *mcdev = FSL_MC_DEVICE(obj);
     VFIOFslmcDevice *vdev = DO_UPCAST(VFIOFslmcDevice, mcdev, mcdev);
-
     device_add_bootindex_property(obj, &vdev->bootindex,
                                   "bootindex", NULL,
                                   &mcdev->qdev, NULL);

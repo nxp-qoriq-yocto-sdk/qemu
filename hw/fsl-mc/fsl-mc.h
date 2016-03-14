@@ -29,6 +29,10 @@
 /* Size of each QBMAN Portal */
 #define FSLMC_QBMAN_PORTAL_SIZE 0x10000
 
+#define FSLMC_HOST_SYSFS_PATH	"/sys/bus/fsl-mc/devices/"
+#define FSLMC_DEV_SYSPATH_LEN	100
+#define FSLMC_DEV_NAME_LEN		20
+
 struct FslMcBusState;
 
 #define TYPE_FSL_MC_BUS "fsl-mc-bus"
@@ -110,5 +114,4 @@ int fsl_mc_connect_irq(FslMcDeviceState *mcdev, int irq_num,
                        char *name, uint16_t id);
 int fsl_mc_bus_get_irq_num(int irq_index);
 int fsl_mc_assert_irq(FslMcDeviceState *mcdev, int irq_num);
-
 #endif /* !defined(FSL_MC_FSL_MC_H) */
