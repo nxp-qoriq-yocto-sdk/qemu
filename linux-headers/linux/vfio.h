@@ -36,7 +36,8 @@
 /* Two-stage IOMMU */
 #define VFIO_TYPE1_NESTING_IOMMU	6	/* Implies v2 */
 
-#define VFIO_SPAPR_TCE_v2_IOMMU		7
+/* Freescale PAMU */
+#define VFIO_FSL_PAMU_IOMMU             7
 
 /*
  * The IOCTL interface is designed for extensibility by embedding the
@@ -164,6 +165,7 @@ struct vfio_device_info {
 #define VFIO_DEVICE_FLAGS_PCI	(1 << 1)	/* vfio-pci device */
 #define VFIO_DEVICE_FLAGS_PLATFORM (1 << 2)	/* vfio-platform device */
 #define VFIO_DEVICE_FLAGS_AMBA  (1 << 3)	/* vfio-amba device */
+#define VFIO_DEVICE_FLAGS_FSL_MC (1 << 4)	/* vfio Freescale MC device */
 	__u32	num_regions;	/* Max region index + 1 */
 	__u32	num_irqs;	/* Max IRQ index + 1 */
 };
@@ -409,6 +411,7 @@ struct vfio_iommu_type1_dma_map {
 	__u32	flags;
 #define VFIO_DMA_MAP_FLAG_READ (1 << 0)		/* readable from device */
 #define VFIO_DMA_MAP_FLAG_WRITE (1 << 1)	/* writable from device */
+#define VFIO_DMA_MAP_FLAG_MMIO (1 << 2)		/* non-cachable device region */
 	__u64	vaddr;				/* Process virtual address */
 	__u64	iova;				/* IO virtual address */
 	__u64	size;				/* Size of mapping (bytes) */
@@ -435,6 +438,105 @@ struct vfio_iommu_type1_dma_unmap {
 
 #define VFIO_IOMMU_UNMAP_DMA _IO(VFIO_TYPE, VFIO_BASE + 14)
 
+/*********** APIs for VFIO_PAMU type only ****************/
+/*
+ * VFIO_IOMMU_PAMU_GET_ATTR - _IO(VFIO_TYPE, VFIO_BASE + 15,
+ *				  struct vfio_pamu_attr)
+ *
+ * Gets the iommu attributes for the current vfio container.
+ * Caller sets argsz and attribute.  The ioctl fills in
+ * the provided struct vfio_pamu_attr based on the attribute
+ * value that was set.
+ * Return: 0 on success, -errno on failure
+ */
+struct vfio_pamu_attr {
+	__u32	argsz;
+	__u32	flags;	/* no flags currently */
+#define VFIO_ATTR_GEOMETRY	0
+#define VFIO_ATTR_WINDOWS	1
+#define VFIO_ATTR_PAMU_STASH	2
+	__u32	attribute;
+
+	union {
+		/* VFIO_ATTR_GEOMETRY */
+		struct {
+			/* first addr that can be mapped */
+			__u64 aperture_start;
+			/* last addr that can be mapped */
+			__u64 aperture_end;
+		} attr;
+
+		/* VFIO_ATTR_WINDOWS */
+		__u32 windows;  /* number of windows in the aperture
+				 * initially this will be the max number
+				 * of windows that can be set
+				 */
+		/* VFIO_ATTR_PAMU_STASH */
+		struct {
+			__u32 cpu;	/* CPU number for stashing */
+			__u32 cache;	/* cache ID for stashing */
+		} stash;
+	} attr_info;
+};
+#define VFIO_IOMMU_PAMU_GET_ATTR  _IO(VFIO_TYPE, VFIO_BASE + 15)
+
+/*
+ * VFIO_IOMMU_PAMU_SET_ATTR - _IO(VFIO_TYPE, VFIO_BASE + 16,
+ *				  struct vfio_pamu_attr)
+ *
+ * Sets the iommu attributes for the current vfio container.
+ * Caller sets struct vfio_pamu attr, including argsz and attribute and
+ * setting any fields that are valid for the attribute.
+ * Return: 0 on success, -errno on failure
+ */
+#define VFIO_IOMMU_PAMU_SET_ATTR  _IO(VFIO_TYPE, VFIO_BASE + 16)
+
+/*
+ * VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT - _IO(VFIO_TYPE, VFIO_BASE + 17, __u32)
+ *
+ * Returns the number of MSI banks for this platform.  This tells user space
+ * how many aperture windows should be reserved for MSI banks when setting
+ * the PAMU geometry and window count.
+ * Return: __u32 bank count on success, -errno on failure
+ */
+#define VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT _IO(VFIO_TYPE, VFIO_BASE + 17)
+
+/*
+ * VFIO_IOMMU_PAMU_MAP_MSI_BANK - _IO(VFIO_TYPE, VFIO_BASE + 18,
+ *				      struct vfio_pamu_msi_bank_map)
+ *
+ * Maps the MSI bank at the specified index and iova.  User space must
+ * call this ioctl once for each MSI bank (count of banks is returned by
+ * VFIO_IOMMU_PAMU_GET_MSI_BANK_COUNT).
+ * Caller provides struct vfio_pamu_msi_bank_map with all fields set.
+ * Return: 0 on success, -errno on failure
+ */
+
+struct vfio_pamu_msi_bank_map {
+	__u32	argsz;
+	__u32	flags;		/* no flags currently */
+	__u32	msi_bank_index;	/* the index of the MSI bank */
+	__u64	iova;		/* the iova the bank is to be mapped to */
+};
+#define VFIO_IOMMU_PAMU_MAP_MSI_BANK  _IO(VFIO_TYPE, VFIO_BASE + 18)
+
+/*
+ * VFIO_IOMMU_PAMU_UNMAP_MSI_BANK - _IO(VFIO_TYPE, VFIO_BASE + 19,
+ *					struct vfio_pamu_msi_bank_unmap)
+ *
+ * Unmaps the MSI bank at the specified iova.
+ * Caller provides struct vfio_pamu_msi_bank_unmap with all fields set.
+ * Operates on VFIO file descriptor (/dev/vfio/vfio).
+ * Return: 0 on success, -errno on failure
+ */
+
+struct vfio_pamu_msi_bank_unmap {
+	__u32	argsz;
+	__u32	flags;	/* no flags currently */
+	__u64	iova;	/* the iova to be unmapped to */
+};
+#define VFIO_IOMMU_PAMU_UNMAP_MSI_BANK  _IO(VFIO_TYPE, VFIO_BASE + 19)
+
 /*
  * IOCTLs to enable/disable IOMMU container usage.
  * No parameters are supported.
@@ -443,23 +545,6 @@ struct vfio_iommu_type1_dma_unmap {
 #define VFIO_IOMMU_DISABLE	_IO(VFIO_TYPE, VFIO_BASE + 16)
 
 /* -------- Additional API for SPAPR TCE (Server POWERPC) IOMMU -------- */
-
-/*
- * The SPAPR TCE DDW info struct provides the information about
- * the details of Dynamic DMA window capability.
- *
- * @pgsizes contains a page size bitmask, 4K/64K/16M are supported.
- * @max_dynamic_windows_supported tells the maximum number of windows
- * which the platform can create.
- * @levels tells the maximum number of levels in multi-level IOMMU tables;
- * this allows splitting a table into smaller chunks which reduces
- * the amount of physically contiguous memory required for the table.
- */
-struct vfio_iommu_spapr_tce_ddw_info {
-	__u64 pgsizes;			/* Bitmap of supported page sizes */
-	__u32 max_dynamic_windows_supported;
-	__u32 levels;
-};
 
 /*
  * The SPAPR TCE info struct provides the information about the PCI bus
@@ -471,17 +556,14 @@ struct vfio_iommu_spapr_tce_ddw_info {
  * addresses too so the window works as a filter rather than an offset
  * for IOVA addresses.
  *
- * Flags supported:
- * - VFIO_IOMMU_SPAPR_INFO_DDW: informs the userspace that dynamic DMA windows
- *   (DDW) support is present. @ddw is only supported when DDW is present.
+ * A flag will need to be added if other page sizes are supported,
+ * so as defined here, it is always 4k.
  */
 struct vfio_iommu_spapr_tce_info {
 	__u32 argsz;
-	__u32 flags;
-#define VFIO_IOMMU_SPAPR_INFO_DDW	(1 << 0)	/* DDW supported */
+	__u32 flags;			/* reserved for future use */
 	__u32 dma32_window_start;	/* 32 bit window start (bytes) */
 	__u32 dma32_window_size;	/* 32 bit window size (bytes) */
-	struct vfio_iommu_spapr_tce_ddw_info ddw;
 };
 
 #define VFIO_IOMMU_SPAPR_TCE_GET_INFO	_IO(VFIO_TYPE, VFIO_BASE + 12)
@@ -492,23 +574,12 @@ struct vfio_iommu_spapr_tce_info {
  * - unfreeze IO/DMA for frozen PE;
  * - read PE state;
  * - reset PE;
- * - configure PE;
- * - inject EEH error.
+ * - configure PE.
  */
-struct vfio_eeh_pe_err {
-	__u32 type;
-	__u32 func;
-	__u64 addr;
-	__u64 mask;
-};
-
 struct vfio_eeh_pe_op {
 	__u32 argsz;
 	__u32 flags;
 	__u32 op;
-	union {
-		struct vfio_eeh_pe_err err;
-	};
 };
 
 #define VFIO_EEH_PE_DISABLE		0	/* Disable EEH functionality */
@@ -525,69 +596,8 @@ struct vfio_eeh_pe_op {
 #define VFIO_EEH_PE_RESET_HOT		6	/* Assert hot reset          */
 #define VFIO_EEH_PE_RESET_FUNDAMENTAL	7	/* Assert fundamental reset  */
 #define VFIO_EEH_PE_CONFIGURE		8	/* PE configuration          */
-#define VFIO_EEH_PE_INJECT_ERR		9	/* Inject EEH error          */
 
 #define VFIO_EEH_PE_OP			_IO(VFIO_TYPE, VFIO_BASE + 21)
-
-/**
- * VFIO_IOMMU_SPAPR_REGISTER_MEMORY - _IOW(VFIO_TYPE, VFIO_BASE + 17, struct vfio_iommu_spapr_register_memory)
- *
- * Registers user space memory where DMA is allowed. It pins
- * user pages and does the locked memory accounting so
- * subsequent VFIO_IOMMU_MAP_DMA/VFIO_IOMMU_UNMAP_DMA calls
- * get faster.
- */
-struct vfio_iommu_spapr_register_memory {
-	__u32	argsz;
-	__u32	flags;
-	__u64	vaddr;				/* Process virtual address */
-	__u64	size;				/* Size of mapping (bytes) */
-};
-#define VFIO_IOMMU_SPAPR_REGISTER_MEMORY	_IO(VFIO_TYPE, VFIO_BASE + 17)
-
-/**
- * VFIO_IOMMU_SPAPR_UNREGISTER_MEMORY - _IOW(VFIO_TYPE, VFIO_BASE + 18, struct vfio_iommu_spapr_register_memory)
- *
- * Unregisters user space memory registered with
- * VFIO_IOMMU_SPAPR_REGISTER_MEMORY.
- * Uses vfio_iommu_spapr_register_memory for parameters.
- */
-#define VFIO_IOMMU_SPAPR_UNREGISTER_MEMORY	_IO(VFIO_TYPE, VFIO_BASE + 18)
-
-/**
- * VFIO_IOMMU_SPAPR_TCE_CREATE - _IOWR(VFIO_TYPE, VFIO_BASE + 19, struct vfio_iommu_spapr_tce_create)
- *
- * Creates an additional TCE table and programs it (sets a new DMA window)
- * to every IOMMU group in the container. It receives page shift, window
- * size and number of levels in the TCE table being created.
- *
- * It allocates and returns an offset on a PCI bus of the new DMA window.
- */
-struct vfio_iommu_spapr_tce_create {
-	__u32 argsz;
-	__u32 flags;
-	/* in */
-	__u32 page_shift;
-	__u64 window_size;
-	__u32 levels;
-	/* out */
-	__u64 start_addr;
-};
-#define VFIO_IOMMU_SPAPR_TCE_CREATE	_IO(VFIO_TYPE, VFIO_BASE + 19)
-
-/**
- * VFIO_IOMMU_SPAPR_TCE_REMOVE - _IOW(VFIO_TYPE, VFIO_BASE + 20, struct vfio_iommu_spapr_tce_remove)
- *
- * Unprograms a TCE table from all groups in the container and destroys it.
- * It receives a PCI bus offset as a window id.
- */
-struct vfio_iommu_spapr_tce_remove {
-	__u32 argsz;
-	__u32 flags;
-	/* in */
-	__u64 start_addr;
-};
-#define VFIO_IOMMU_SPAPR_TCE_REMOVE	_IO(VFIO_TYPE, VFIO_BASE + 20)
 
 /* ***************************************************************** */
 
