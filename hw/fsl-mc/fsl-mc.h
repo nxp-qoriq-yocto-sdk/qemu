@@ -90,6 +90,7 @@ typedef struct FslMcDeviceState {
     FslMcBusState *bus;
     bool root_dprc;
     uint16_t dprc_id;
+    off_t offset;
     uint8_t irq_map[60]; /* Assume no more than 10 is per device */
     QLIST_ENTRY(FslMcDeviceState) next;
 } FslMcDeviceState;

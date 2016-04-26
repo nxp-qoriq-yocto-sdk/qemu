@@ -77,8 +77,10 @@ int fsl_mc_get_root_mcp_addr_range(hwaddr *mc_p_addr, hwaddr *mc_p_size)
 	return -1;
     }
 
-    addr = host->mc_bus_base_addr +  host->mc_portals_range_offset;
-    addr += FSLMC_MC_PORTAL_SIZE * (mcdev->dprc_id - 1);
+    /* Get to the Base of MC-Portal */
+    addr = host->mc_bus_base_addr + host->mc_portals_range_offset;
+    /* Add the Mc-portal device offset */
+    addr += mcdev->offset;
     *mc_p_addr = addr;
     *mc_p_size = 0x40;
     return 0;
@@ -119,6 +121,7 @@ int fsl_mc_register_device(FslMcDeviceState *mcdev, int region_num,
 
     /* Hack to calculate the device offset address */
     offset &= 0x00FFFFFF;
+    mcdev->offset = offset;
 
     if (strncmp(name, "dprc", 10) == 0) {
         portal = &host->mc_portal;
